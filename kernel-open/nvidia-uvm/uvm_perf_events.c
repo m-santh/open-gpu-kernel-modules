@@ -306,8 +306,8 @@ void uvm_perf_event_notify_migration(uvm_perf_va_space_events_t *va_space_events
             }
             if(UVM_ID_IS_CPU(src)){
                  va_space_events->va_space->permanent_counters[dst.val][UvmCounterNameBytesXferHtD]+=bytes;
-                 va_space_events->va_space->permanent_counters[src.val][UvmCounterNameGpuResident]-=pages;
-                 va_space_events->va_space->permanent_counters[dst.val][UvmCounterNameCPUResident]+=pages;
+                 va_space_events->va_space->permanent_counters[dst.val][UvmCounterNameGpuResident]+=pages;
+                 va_space_events->va_space->permanent_counters[src.val][UvmCounterNameCPUResident]-=pages;
             }
         }
 
