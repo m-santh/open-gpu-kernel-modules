@@ -75,6 +75,18 @@ typedef enum
     // Locking: uvm_va_space: at least in read mode, uvm_va_block: exclusive
     UVM_PERF_EVENT_REVOCATION,
 
+
+    //Residency update event
+
+    UVM_PREF_EVENT_UPDATE_RESIDENCY,
+
+    //GPU memeory allocation
+
+    UVM_PREF_EVENT_GPU_MEMORY_ALLOCATION_CHANGED,
+
+
+    UVM_PREF_GPU_MEMEORY_OTHER_PROCESS_MEMORY_EVICTED,
+
     UVM_PERF_EVENT_COUNT,
 } uvm_perf_event_t;
 
@@ -222,6 +234,62 @@ typedef union
         // New access permission
         uvm_prot_t new_prot;
     } revocation;
+
+    struct
+    {
+        uvm_va_block_t *block;
+
+        // destID
+        uvm_processor_id_t proc_id;
+
+        //srcID
+
+        uvm_processor_id_t src_id;
+
+
+
+        //number of pages become resident to this processor
+        NvU32 page_count;
+
+    } residency_update;
+
+    struct
+    {
+
+        // destID
+        uvm_processor_id_t proc_id;
+
+        //added or removed
+
+        bool is_added;
+
+        //number of pages become resident to this processor
+        NvU64 chunk_size;
+
+        //block
+
+        uvm_va_block_t* block;
+
+    } memeory_allocation;
+
+
+    struct
+    {
+
+        // destID
+        uvm_processor_id_t proc_id;
+
+
+        //number of pages become resident to this processor
+        NvU64 chunk_size;
+
+        //block
+
+        uvm_va_space_t* va_space;
+
+    } other_process_eviction;
+
+
 } uvm_perf_event_data_t;
 
 // Type of the function that can be registered as a callback
@@ -278,6 +346,74 @@ void uvm_perf_unregister_event_callback_locked(uvm_perf_va_space_events_t *va_sp
 void uvm_perf_event_notify(uvm_perf_va_space_events_t *va_space_events, uvm_perf_event_t event_id,
                            uvm_perf_event_data_t *event_data);
 
+
+/********************ishan******************************************************** */
+
+
+void uvm_perf_event_notify_cpu_fault(uvm_perf_va_space_events_t *va_space_events,
+                                                   uvm_va_block_t *va_block,
+                                                   uvm_processor_id_t preferred_location,
+                                                   NvU64 fault_va,
+                                                   bool is_write,
+                                                   NvU32 cpu_num,
+                                                   NvU64 pc);
+
+
+void uvm_perf_event_notify_migration(uvm_perf_va_space_events_t *va_space_events,
+                                                   uvm_push_t *push,
+                                                   uvm_va_block_t *va_block,
+                                                   uvm_processor_id_t dst,
+                                                   uvm_processor_id_t src,
+                                                   NvU64 address,
+                                                   NvU64 bytes,
+                                                   uvm_va_block_transfer_mode_t transfer_mode,
+                                                   uvm_make_resident_cause_t cause,
+                                                   uvm_make_resident_context_t *make_resident_context);
+
+
+void uvm_perf_event_notify_gpu_fault(uvm_perf_va_space_events_t *va_space_events,
+                                                   uvm_va_block_t *va_block,
+                                                   uvm_gpu_id_t gpu_id,
+                                                   uvm_processor_id_t preferred_location,
+                                                   uvm_fault_buffer_entry_t *buffer_entry,
+                                                   NvU32 batch_id,
+                                                   bool is_duplicate);
+
+
+void uvm_perf_event_notify_gpu_residency_update(uvm_perf_va_space_events_t *va_space_events,
+                                                   uvm_va_block_t *va_block,
+                                                   uvm_processor_id_t dest_id,
+                                                   uvm_processor_id_t src_id,
+                                                   NvU32 page_count);
+
+
+
+void uvm_perf_event_notify_gpu_memory_update(uvm_perf_va_space_events_t *va_space_events,
+                                                   uvm_processor_id_t dest_id,
+                                                   NvU64 chunk_size,
+                                                   bool is_added,
+                                                   uvm_va_block_t* block);
+
+
+
+
+
+void uvm_perf_event_notify_other_process_evicted(uvm_perf_va_space_events_t *va_space_events,
+                                                   uvm_processor_id_t dest_id,
+                                                   NvU64 chunk_size
+                                                   );
+
+
+
+
+
+
+
+
+
+
+/******************************************************************************************** */
+
 // Checks if the given callback is already registered for the event.
 // va_space_events.lock must be held in either mode by the caller.
 bool uvm_perf_is_event_callback_registered(uvm_perf_va_space_events_t *va_space_events,
@@ -289,7 +425,7 @@ NV_STATUS uvm_perf_events_init(void);
 void uvm_perf_events_exit(void);
 
 // Helper to notify migration events
-static inline void uvm_perf_event_notify_migration(uvm_perf_va_space_events_t *va_space_events,
+/*static inline void uvm_perf_event_notify_migration(uvm_perf_va_space_events_t *va_space_events,
                                                    uvm_push_t *push,
                                                    uvm_va_block_t *va_block,
                                                    uvm_processor_id_t dst,
@@ -299,7 +435,8 @@ static inline void uvm_perf_event_notify_migration(uvm_perf_va_space_events_t *v
                                                    uvm_va_block_transfer_mode_t transfer_mode,
                                                    uvm_make_resident_cause_t cause,
                                                    uvm_make_resident_context_t *make_resident_context)
-{
+{   pr_info("migration happen.....\n");
+   
     uvm_perf_event_data_t event_data =
         {
             .migration =
@@ -316,8 +453,31 @@ static inline void uvm_perf_event_notify_migration(uvm_perf_va_space_events_t *v
                 }
         };
 
+        uvm_assert_rwsem_locked_write(&va_space_events->va_space->lock);
+        if(cause==UVM_MAKE_RESIDENT_CAUSE_EVICTION)
+         va_space_events->va_space->permanent_counters[src][UvmCounterNameGpuEvictions]+=bytes/UVM_PAGE_SIZE_4K;
+
+        if(UVM_ID_IS_CPU(dst) && UVM_ID_IS_CPU(src)){
+            ;
+        }
+
+        else{
+            if(UVM_ID_IS_CPU(dst)){
+                 va_space_events->va_space->permanent_counters[src.val][UvmCounterNameBytesXferDtH]+=bytes;
+                 va_space_events->va_space->permanent_counters[src.val][UvmCounterNameGpuResident]-=bytes/UVM_PAGE_SIZE_4K;
+                 va_space_events->va_space->permanent_counters[dst.val][UvmCounterNameCPUResident]+=bytes/UVM_PAGE_SIZE_4K;
+            }
+            if(UVM_ID_IS_CPU(src)){
+                 va_space_events->va_space->permanent_counters[dst.val][UvmCounterNameBytesXferHtD]+=bytes;
+                 va_space_events->va_space->permanent_counters[src.val][UvmCounterNameGpuResident]-=bytes/UVM_PAGE_SIZE_4K;
+                 va_space_events->va_space->permanent_counters[dst.val][UvmCounterNameCPUResident]+=bytes/UVM_PAGE_SIZE_4K;
+            }
+        }
+
+
+
     uvm_perf_event_notify(va_space_events, UVM_PERF_EVENT_MIGRATION, &event_data);
-}
+}*/
 
 static inline void uvm_perf_event_notify_migration_cpu(uvm_perf_va_space_events_t *va_space_events,
                                                        uvm_va_block_t *va_block,
@@ -354,6 +514,7 @@ static inline void uvm_perf_event_notify_migration_cpu(uvm_perf_va_space_events_
 }
 
 // Helper to notify gpu fault events
+/*
 static inline void uvm_perf_event_notify_gpu_fault(uvm_perf_va_space_events_t *va_space_events,
                                                    uvm_va_block_t *va_block,
                                                    uvm_gpu_id_t gpu_id,
@@ -377,11 +538,45 @@ static inline void uvm_perf_event_notify_gpu_fault(uvm_perf_va_space_events_t *v
     event_data.fault.gpu.batch_id     = batch_id;
     event_data.fault.gpu.is_duplicate = is_duplicate;
 
+    pr_info("fault type: %d\n",buffer_entry->is_replayable);
+        uvm_assert_rwsem_locked_write(&va_space_events->va_space->lock);
+         va_space_events->va_space->permanent_counters[gpu_id.val][UvmCounterNameGpuPageFaultCount]++;
+
+
     uvm_perf_event_notify(va_space_events, UVM_PERF_EVENT_FAULT, &event_data);
 }
+*/
+
+/*static inline void uvm_perf_event_notify_gpu_residency_update(uvm_perf_va_space_events_t *va_space_events,
+                                                   uvm_va_block_t *va_block,
+                                                   uvm_processor_id_t dest_id,
+                                                   uvm_processor_id_t src_id,
+                                                   NvU32 page_count)
+{   //uvm_va_space_t *va_space = va_space_events->va_space;
+    uvm_perf_event_data_t event_data =
+        {
+            .residency_update =
+                {
+                   
+                    .block            = va_block,
+                    .proc_id          = dest_id,
+                    .page_count       = page_count,
+                    .src_id           = src_id
+                },
+        };
+
+    pr_info("residancy update......: %d\n",page_count);
+         uvm_assert_rwsem_locked_write(&va_space->lock);
+        if(UVM_ID_IS_CPU(dest_id))
+         va_space_events->va_space->permanent_counters[dest_id.val][UvmCounterNameCPUResident]+=page_count;
+        else
+         va_space_events->va_space->permanent_counters[dest_id.val][UvmCounterNameGpuResident]+=page_count;
+
+    uvm_perf_event_notify(va_space_events, UVM_PREF_EVENT_UPDATE_RESIDENCY, &event_data);
+}*/
 
 // Helper to notify cpu fault events
-static inline void uvm_perf_event_notify_cpu_fault(uvm_perf_va_space_events_t *va_space_events,
+/*static inline void uvm_perf_event_notify_cpu_fault(uvm_perf_va_space_events_t *va_space_events,
                                                    uvm_va_block_t *va_block,
                                                    uvm_processor_id_t preferred_location,
                                                    NvU64 fault_va,
@@ -405,8 +600,12 @@ static inline void uvm_perf_event_notify_cpu_fault(uvm_perf_va_space_events_t *v
     event_data.fault.cpu.pc       = pc;
     event_data.fault.cpu.cpu_num  = cpu_num;
 
+        uvm_assert_rwsem_locked_write(&va_space_events->va_space->lock);
+         va_space_events->va_space->permanent_counters[0][UvmCounterNameCpuPageFaultCount]++;
+        //uvm_up_write(&va_space->lock);
+
     uvm_perf_event_notify(va_space_events, UVM_PERF_EVENT_FAULT, &event_data);
-}
+}*/
 
 // Helper to notify permission revocation
 static inline void uvm_perf_event_notify_revocation(uvm_perf_va_space_events_t *va_space_events,

@@ -534,6 +534,8 @@ static bool counter_matches_processor(UvmCounterName counter, const NvProcessorU
     // This check prevents double counting in the aggregate count.
     if (counter == UvmCounterNameCpuPageFaultCount)
         return uvm_uuid_eq(processor, &NV_PROCESSOR_UUID_CPU_DEFAULT);
+    if(counter == UvmCounterNameCPUResident)
+        return uvm_uuid_eq(processor, &NV_PROCESSOR_UUID_CPU_DEFAULT);
     return true;
 }
 
@@ -560,6 +562,35 @@ static void uvm_tools_inc_counter(uvm_va_space_t *va_space,
             if ((counters->all_processors && counter_matches_processor(counter, processor)) ||
                 uvm_uuid_eq(&counters->processor, processor)) {
                 atomic64_add(amount, (atomic64_t *)(counters->counters + counter));
+            }
+        }
+    }
+}
+
+
+static void uvm_tools_dec_counter(uvm_va_space_t *va_space,
+                                  UvmCounterName counter,
+                                  NvU64 amount,
+                                  const NvProcessorUuid *processor)
+{
+    UVM_ASSERT((NvU32)counter < UVM_TOTAL_COUNTERS);
+    uvm_assert_rwsem_locked(&va_space->tools.lock);
+
+    if (amount > 0) {
+        uvm_tools_counter_t *counters;
+
+        // Prevent processor speculation prior to accessing user-mapped memory
+        // to avoid leaking information from side-channel attacks. There are
+        // many possible paths leading to this point and it would be difficult
+        // and error-prone to audit all of them to determine whether user mode
+        // could guide this access to kernel memory under speculative execution,
+        // so to be on the safe side we'll just always block speculation.
+        nv_speculation_barrier();
+
+        list_for_each_entry(counters, va_space->tools.counters + counter, counter_nodes[counter]) {
+            if ((counters->all_processors && counter_matches_processor(counter, processor)) ||
+                uvm_uuid_eq(&counters->processor, processor)) {
+                atomic64_sub(amount, (atomic64_t *)(counters->counters + counter));
             }
         }
     }
@@ -638,7 +669,24 @@ static bool tools_is_migration_callback_needed(uvm_va_space_t *va_space)
     return tools_is_event_enabled(va_space, UvmEventTypeMigration) ||
            tools_is_event_enabled(va_space, UvmEventTypeReadDuplicate) ||
            tools_is_counter_enabled(va_space, UvmCounterNameBytesXferDtH) ||
-           tools_is_counter_enabled(va_space, UvmCounterNameBytesXferHtD);
+           tools_is_counter_enabled(va_space, UvmCounterNameBytesXferHtD) ||
+           tools_is_counter_enabled(va_space, UvmCounterNameGpuEvictions) ||
+           tools_is_counter_enabled(va_space,UvmCounterNameCPUResident) ||
+           tools_is_counter_enabled(va_space,UvmCounterNameGpuResident) ;
+          
+}
+
+static bool tools_is_residency_callback_needed(uvm_va_space_t *va_space){
+    return  tools_is_counter_enabled(va_space,UvmCounterNameCPUResident) ||
+           tools_is_counter_enabled(va_space,UvmCounterNameGpuResident) ;
+}
+
+static bool tools_is_memory_callback_needed(uvm_va_space_t *va_space){
+    return  tools_is_counter_enabled(va_space,UvmCounterNameGpuMemory);
+}
+
+static bool tools_is_other_process_eviction_callback_needed(uvm_va_space_t* va_space){
+    return  tools_is_counter_enabled(va_space,UvmCounterNameOtherProcess);
 }
 
 static int uvm_tools_open(struct inode *inode, struct file *filp)
@@ -677,6 +725,10 @@ static long uvm_tools_unlocked_ioctl(struct file *filp, unsigned int cmd, unsign
         UVM_ROUTE_CMD_STACK_NO_INIT_CHECK(UVM_TOOLS_ENABLE_COUNTERS,            uvm_api_tools_enable_counters);
         UVM_ROUTE_CMD_STACK_NO_INIT_CHECK(UVM_TOOLS_DISABLE_COUNTERS,           uvm_api_tools_disable_counters);
         UVM_ROUTE_CMD_STACK_NO_INIT_CHECK(UVM_TOOLS_INIT_EVENT_TRACKER_V2,      uvm_api_tools_init_event_tracker_v2);
+        UVM_ROUTE_CMD_STACK_NO_INIT_CHECK(UVM_TOOLS_GET_GPUs_UUID,              uvm_api_tools_get_gpus_uuid);
+        UVM_ROUTE_CMD_STACK_NO_INIT_CHECK(UVM_TOOLS_GET_CURRENT_COUNTER_VALUES,uvm_api_tools_get_current_values);
+        UVM_ROUTE_CMD_STACK_NO_INIT_CHECK(UVM_TOOLS_GET_UVM_PIDS,               uvm_api_tools_get_uvm_pids);
+
     }
 
     uvm_thread_assert_all_unlocked();
@@ -840,7 +892,7 @@ static void record_cpu_fault(UvmEventCpuFaultInfo *info, uvm_perf_event_data_t *
 }
 
 static void uvm_tools_record_fault(uvm_perf_event_t event_id, uvm_perf_event_data_t *event_data)
-{
+{   pr_info("got called.................\n");
     uvm_va_space_t *va_space = event_data->fault.space;
 
     UVM_ASSERT(event_id == UVM_PERF_EVENT_FAULT);
@@ -1189,7 +1241,7 @@ static void uvm_tools_record_migration_cpu_to_cpu(uvm_va_space_t *va_space,
 // For CPU-to-CPU copies using memcpy, this event is notified when all of the
 // page copies does by block_copy_resident_pages have finished.
 static void uvm_tools_record_migration(uvm_perf_event_t event_id, uvm_perf_event_data_t *event_data)
-{
+{   pr_info("got called.................12\n");
     uvm_va_block_t *va_block = event_data->migration.block;
     uvm_va_space_t *va_space = uvm_va_block_get_va_space(va_block);
 
@@ -1233,22 +1285,156 @@ static void uvm_tools_record_migration(uvm_perf_event_t event_id, uvm_perf_event
 
     // Increment counters
     if (UVM_ID_IS_CPU(event_data->migration.src) &&
-        tools_is_counter_enabled(va_space, UvmCounterNameBytesXferHtD)) {
+        (tools_is_counter_enabled(va_space, UvmCounterNameBytesXferHtD) || tools_is_counter_enabled(va_space, UvmCounterNameCPUResident) || tools_is_counter_enabled(va_space, UvmCounterNameGpuResident))) {
         uvm_gpu_t *gpu = uvm_gpu_get(event_data->migration.dst);
         uvm_tools_inc_counter(va_space,
                               UvmCounterNameBytesXferHtD,
                               event_data->migration.bytes,
                               &gpu->uuid);
+        uvm_tools_dec_counter(va_space,
+                              UvmCounterNameCPUResident,
+                              event_data->migration.bytes/UVM_PAGE_SIZE_4K,
+                              &NV_PROCESSOR_UUID_CPU_DEFAULT);
+        uvm_tools_inc_counter(va_space,
+                              UvmCounterNameGpuResident,
+                              event_data->migration.bytes/UVM_PAGE_SIZE_4K,
+                              &gpu->uuid);
     }
     if (UVM_ID_IS_CPU(event_data->migration.dst) &&
-        tools_is_counter_enabled(va_space, UvmCounterNameBytesXferDtH)) {
+        (tools_is_counter_enabled(va_space, UvmCounterNameBytesXferDtH) || tools_is_counter_enabled(va_space, UvmCounterNameCPUResident) || tools_is_counter_enabled(va_space, UvmCounterNameGpuResident))) {
         uvm_gpu_t *gpu = uvm_gpu_get(event_data->migration.src);
+        unsigned long int pages=(event_data->migration.bytes/UVM_PAGE_SIZE_4K);
         uvm_tools_inc_counter(va_space,
                               UvmCounterNameBytesXferDtH,
                               event_data->migration.bytes,
                               &gpu->uuid);
+        uvm_tools_inc_counter(va_space,
+                              UvmCounterNameCPUResident,
+                              pages,
+                              &NV_PROCESSOR_UUID_CPU_DEFAULT);
+        uvm_tools_dec_counter(va_space,
+                              UvmCounterNameGpuResident,
+                              pages,
+                              &gpu->uuid);
+    }
+    if (UVM_ID_IS_CPU(event_data->migration.dst) && event_data->migration.cause==UVM_MAKE_RESIDENT_CAUSE_EVICTION &&
+        tools_is_counter_enabled(va_space, UvmCounterNameGpuEvictions)) {
+        uvm_gpu_t *gpu = uvm_gpu_get(event_data->migration.src);
+        unsigned long int pages=(event_data->migration.bytes/UVM_PAGE_SIZE_4K);
+        uvm_tools_inc_counter(va_space,
+                              UvmCounterNameGpuEvictions,
+                              pages,
+                              &gpu->uuid);
     }
 
+done_unlock:
+    uvm_up_read(&va_space->tools.lock);
+}
+
+
+static void uvm_tools_record_residency_unpdate(uvm_perf_event_t event_id, uvm_perf_event_data_t *event_data)
+{   //pr_info("got called.................12\n");
+    uvm_va_block_t *va_block = event_data->residency_update.block;
+    uvm_va_space_t *va_space = uvm_va_block_get_va_space(va_block);
+
+    UVM_ASSERT(event_id == UVM_PREF_EVENT_UPDATE_RESIDENCY);
+
+    uvm_assert_mutex_locked(&va_block->lock);
+    uvm_assert_rwsem_locked(&va_space->perf_events.lock);
+    UVM_ASSERT(va_space->tools.enabled);
+
+    uvm_down_read(&va_space->tools.lock);
+    UVM_ASSERT(tools_is_residency_callback_needed(va_space));
+
+
+    // Increment counters
+    if (UVM_ID_IS_CPU(event_data->residency_update.proc_id) && tools_is_counter_enabled(va_space, UvmCounterNameCPUResident)) {
+        uvm_tools_inc_counter(va_space,
+                              UvmCounterNameCPUResident,
+                              event_data->residency_update.page_count,
+                              &NV_PROCESSOR_UUID_CPU_DEFAULT);
+    }
+     if (UVM_ID_IS_GPU(event_data->residency_update.proc_id) && tools_is_counter_enabled(va_space, UvmCounterNameGpuResident)) {
+        uvm_gpu_t *gpu = uvm_gpu_get(event_data->residency_update.proc_id);
+        uvm_tools_inc_counter(va_space,
+                              UvmCounterNameGpuResident,
+                              event_data->residency_update.page_count,
+                              &gpu->uuid);
+    }
+done_unlock:
+    uvm_up_read(&va_space->tools.lock);
+}
+
+
+//memory allocation changed
+
+static void uvm_tools_record_memory_unpdate(uvm_perf_event_t event_id, uvm_perf_event_data_t *event_data)
+{   //pr_info("got called.................12\n");
+    uvm_va_block_t *va_block = event_data->memeory_allocation.block;
+    uvm_va_space_t *va_space = uvm_va_block_get_va_space(va_block);
+
+    UVM_ASSERT(event_id == UVM_PREF_EVENT_GPU_MEMORY_ALLOCATION_CHANGED);
+
+    uvm_assert_mutex_locked(&va_block->lock);
+    uvm_assert_rwsem_locked(&va_space->perf_events.lock);
+    UVM_ASSERT(va_space->tools.enabled);
+
+    uvm_down_read(&va_space->tools.lock);
+    UVM_ASSERT(tools_is_memory_callback_needed(va_space));
+
+
+    // Increment counters
+     if (UVM_ID_IS_GPU(event_data->memeory_allocation.proc_id) && tools_is_counter_enabled(va_space, UvmCounterNameGpuMemory)) {
+        uvm_gpu_t *gpu = uvm_gpu_get(event_data->memeory_allocation.proc_id);
+        if(event_data->memeory_allocation.is_added)
+        uvm_tools_inc_counter(va_space,
+                              UvmCounterNameGpuMemory,
+                              event_data->memeory_allocation.chunk_size,
+                              &gpu->uuid);
+        else
+        uvm_tools_dec_counter(va_space,
+                              UvmCounterNameGpuMemory,
+                              event_data->memeory_allocation.chunk_size,
+                              &gpu->uuid);
+    }
+    if (UVM_ID_IS_CPU(event_data->memeory_allocation.proc_id) && tools_is_counter_enabled(va_space, UvmCounterNameGpuMemory)) {
+        //uvm_gpu_t *gpu = uvm_gpu_get(event_data->memeory_allocation.proc_id);
+        if(event_data->memeory_allocation.is_added)
+        uvm_tools_inc_counter(va_space,
+                              UvmCounterNameGpuMemory,
+                              event_data->memeory_allocation.chunk_size,
+                              &NV_PROCESSOR_UUID_CPU_DEFAULT);
+        else
+        uvm_tools_dec_counter(va_space,
+                              UvmCounterNameGpuMemory,
+                              event_data->memeory_allocation.chunk_size,
+                              &NV_PROCESSOR_UUID_CPU_DEFAULT);
+    }
+done_unlock:
+    uvm_up_read(&va_space->tools.lock);
+}
+
+
+static void uvm_tools_record_ope_unpdate(uvm_perf_event_t event_id, uvm_perf_event_data_t *event_data)
+{   //pr_info("got called.................12\n");
+
+    uvm_va_space_t *va_space = event_data->other_process_eviction.va_space;
+
+    UVM_ASSERT(event_id == UVM_PREF_GPU_MEMEORY_OTHER_PROCESS_MEMORY_EVICTED);
+    UVM_ASSERT(va_space->tools.enabled);
+
+    uvm_down_read(&va_space->tools.lock);
+    UVM_ASSERT(tools_is_other_process_eviction_callback_needed(va_space));
+
+
+    // Increment counters
+     if (UVM_ID_IS_GPU(event_data->other_process_eviction.proc_id) && tools_is_counter_enabled(va_space, UvmCounterNameOtherProcess)) {
+        uvm_gpu_t *gpu = uvm_gpu_get(event_data->other_process_eviction.proc_id);
+        uvm_tools_inc_counter(va_space,
+                              UvmCounterNameOtherProcess,
+                              event_data->other_process_eviction.chunk_size,
+                              &gpu->uuid);
+    }
 done_unlock:
     uvm_up_read(&va_space->tools.lock);
 }
@@ -1752,6 +1938,24 @@ void uvm_tools_record_thrashing(uvm_va_space_t *va_space,
 
         uvm_tools_record_event_v2(va_space, &entry);
     }
+    if (tools_is_counter_enabled(va_space, UvmCounternameThrashingPages)){
+        uvm_processor_id_t processor_id;
+        for_each_id_in_mask(processor_id, processors){
+                va_space->permanent_counters[processor_id.val][UvmCounternameThrashingPages]++;
+                if(UVM_ID_IS_CPU(processor_id)){
+                     uvm_tools_inc_counter(va_space, UvmCounternameThrashingPages, 1, &NV_PROCESSOR_UUID_CPU_DEFAULT);
+                }
+                else{
+                    uvm_gpu_t *gpu = uvm_gpu_get(processor_id);
+                    uvm_tools_inc_counter(va_space, UvmCounternameThrashingPages, 1, &gpu->uuid);
+                }
+        }
+        
+        
+        //uvm_tools_inc_counter(va_space, UvmCounterNameCpuPageFaultCount, 1, &NV_PROCESSOR_UUID_CPU_DEFAULT);
+    }
+    
+    
     uvm_up_read(&va_space->tools.lock);
 }
 
@@ -2165,6 +2369,7 @@ static NV_STATUS tools_update_perf_events_callbacks(uvm_va_space_t *va_space)
 
     if (tools_is_fault_callback_needed(va_space)) {
         if (!uvm_perf_is_event_callback_registered(&va_space->perf_events, UVM_PERF_EVENT_FAULT, uvm_tools_record_fault)) {
+            pr_info("fault call; back added..................\n");
             status = uvm_perf_register_event_callback_locked(&va_space->perf_events,
                                                              UVM_PERF_EVENT_FAULT,
                                                              uvm_tools_record_fault);
@@ -2183,6 +2388,7 @@ static NV_STATUS tools_update_perf_events_callbacks(uvm_va_space_t *va_space)
 
     if (tools_is_migration_callback_needed(va_space)) {
         if (!uvm_perf_is_event_callback_registered(&va_space->perf_events, UVM_PERF_EVENT_MIGRATION, uvm_tools_record_migration)) {
+           pr_info("migration added..................\n");
             status = uvm_perf_register_event_callback_locked(&va_space->perf_events,
                                                              UVM_PERF_EVENT_MIGRATION,
                                                              uvm_tools_record_migration);
@@ -2198,6 +2404,69 @@ static NV_STATUS tools_update_perf_events_callbacks(uvm_va_space_t *va_space)
                                                       uvm_tools_record_migration);
         }
     }
+
+
+    if (tools_is_residency_callback_needed(va_space)) {
+        if (!uvm_perf_is_event_callback_registered(&va_space->perf_events, UVM_PREF_EVENT_UPDATE_RESIDENCY, uvm_tools_record_residency_unpdate)) {
+           pr_info("residency call back added..................\n");
+            status = uvm_perf_register_event_callback_locked(&va_space->perf_events,
+                                                             UVM_PREF_EVENT_UPDATE_RESIDENCY,
+                                                             uvm_tools_record_residency_unpdate);
+
+            if (status != NV_OK)
+                return status;
+        }
+    }
+    else {
+        if (uvm_perf_is_event_callback_registered(&va_space->perf_events, UVM_PREF_EVENT_UPDATE_RESIDENCY, uvm_tools_record_residency_unpdate)) {
+            uvm_perf_unregister_event_callback_locked(&va_space->perf_events,
+                                                      UVM_PREF_EVENT_UPDATE_RESIDENCY,
+                                                      uvm_tools_record_residency_unpdate);
+        }
+    }
+
+
+    if (tools_is_memory_callback_needed(va_space)) {
+        if (!uvm_perf_is_event_callback_registered(&va_space->perf_events, UVM_PREF_EVENT_GPU_MEMORY_ALLOCATION_CHANGED, uvm_tools_record_memory_unpdate)) {
+           pr_info("memory call back added..................\n");
+            status = uvm_perf_register_event_callback_locked(&va_space->perf_events,
+                                                             UVM_PREF_EVENT_GPU_MEMORY_ALLOCATION_CHANGED,
+                                                             uvm_tools_record_memory_unpdate);
+
+            if (status != NV_OK)
+                return status;
+        }
+    }
+    else {
+        if (uvm_perf_is_event_callback_registered(&va_space->perf_events, UVM_PREF_EVENT_GPU_MEMORY_ALLOCATION_CHANGED, uvm_tools_record_residency_unpdate)) {
+            uvm_perf_unregister_event_callback_locked(&va_space->perf_events,
+                                                      UVM_PREF_EVENT_GPU_MEMORY_ALLOCATION_CHANGED,
+                                                      uvm_tools_record_memory_unpdate);
+        }
+    }
+
+
+    if (tools_is_other_process_eviction_callback_needed(va_space)) {
+        if (!uvm_perf_is_event_callback_registered(&va_space->perf_events, UVM_PREF_GPU_MEMEORY_OTHER_PROCESS_MEMORY_EVICTED, uvm_tools_record_ope_unpdate)) {
+           pr_info("memory call back added..................\n");
+            status = uvm_perf_register_event_callback_locked(&va_space->perf_events,
+                                                             UVM_PREF_GPU_MEMEORY_OTHER_PROCESS_MEMORY_EVICTED,
+                                                             uvm_tools_record_ope_unpdate);
+
+            if (status != NV_OK)
+                return status;
+        }
+    }
+    else {
+        if (uvm_perf_is_event_callback_registered(&va_space->perf_events, UVM_PREF_EVENT_GPU_MEMORY_ALLOCATION_CHANGED, uvm_tools_record_residency_unpdate)) {
+            uvm_perf_unregister_event_callback_locked(&va_space->perf_events,
+                                                      UVM_PREF_GPU_MEMEORY_OTHER_PROCESS_MEMORY_EVICTED,
+                                                      uvm_tools_record_ope_unpdate);
+        }
+    }
+
+
+
 
     return NV_OK;
 }
@@ -2348,16 +2617,19 @@ NV_STATUS uvm_api_tools_enable_counters(UVM_TOOLS_ENABLE_COUNTERS_PARAMS *params
     uvm_tools_event_tracker_t *event_tracker = tools_event_tracker(filp);
     NV_STATUS status = NV_OK;
     NvU64 inserted_lists;
-
+    pr_info("ioctl to enable counters..................\n");
     if (!tracker_is_counter(event_tracker))
         return NV_ERR_INVALID_ARGUMENT;
 
-    va_space = tools_event_tracker_va_space(event_tracker);
+    if(event_tracker->counter.all_processors && (params->counterTypeFlags & UVM_COUNTER_NAME_FLAG_CPU_RESIDENT_COUNT)){
+        return NV_ERR_INVALID_ARGUMENT;
+    }
 
+    va_space = tools_event_tracker_va_space(event_tracker);
+    pr_info("va space for event tracker found..................\n");
     uvm_down_write(&g_tools_va_space_list_lock);
     uvm_down_write(&va_space->perf_events.lock);
     uvm_down_write(&va_space->tools.lock);
-
     insert_event_tracker(va_space,
                          event_tracker->counter.counter_nodes,
                          UVM_TOTAL_COUNTERS,
@@ -2368,6 +2640,7 @@ NV_STATUS uvm_api_tools_enable_counters(UVM_TOOLS_ENABLE_COUNTERS_PARAMS *params
 
     // perform any necessary registration
     status = tools_update_status(va_space);
+    pr_info("tool update status.................%d\n",status);
     if (status != NV_OK) {
         remove_event_tracker(va_space,
                              event_tracker->counter.counter_nodes,
@@ -2379,6 +2652,94 @@ NV_STATUS uvm_api_tools_enable_counters(UVM_TOOLS_ENABLE_COUNTERS_PARAMS *params
     uvm_up_write(&va_space->tools.lock);
     uvm_up_write(&va_space->perf_events.lock);
     uvm_up_write(&g_tools_va_space_list_lock);
+
+    return status;
+}
+
+
+NV_STATUS uvm_api_tools_get_current_values(UVM_TOOLS_GET_CURRENT_COUNTER_VALUES_PARAMS *params, struct file *filp)
+{
+    uvm_va_space_t *va_space;
+    uvm_tools_event_tracker_t *event_tracker = tools_event_tracker(filp);
+    NV_STATUS status = NV_OK;
+    NvU64 inserted_lists;
+    if (!tracker_is_counter(event_tracker))
+        return NV_ERR_INVALID_ARGUMENT;
+
+    if(event_tracker->counter.all_processors){
+        return NV_ERR_INVALID_ARGUMENT;
+    }
+
+    va_space = tools_event_tracker_va_space(event_tracker);
+  
+    uvm_down_read(&va_space->lock);
+   
+    NV_COPY_TO_USER(params->tablePtr,(NvU64)(va_space->permanent_counters[params->device_id]),8*UVM_TOTAL_COUNTERS);
+
+    uvm_up_read(&va_space->lock);
+
+    return status;
+}
+
+NV_STATUS uvm_api_tools_get_uvm_pids(UVM_TOOLS_GET_UVM_PIDS_PARAMS *params, struct file *filp)
+{
+    uvm_va_space_t *va_space;
+    NV_STATUS status = NV_OK;
+    struct mm_struct* mm;
+  
+    unsigned int* pids;
+    pids = (unsigned int*)uvm_kvmalloc_zero(sizeof(unsigned int) * 45);
+
+    unsigned int count=0;
+    uvm_mutex_lock(&g_uvm_global.va_spaces.lock);
+    list_for_each_entry(va_space, &g_uvm_global.va_spaces.list, list_node) {
+             //pr_info("=====================1====================\n");
+            /*if(va_space==filp->private_data){
+                continue;
+            }*/
+            pr_info("inside loop\n");
+            uvm_va_space_down_read(va_space);
+            mm = uvm_va_space_mm_retain(va_space);
+            //pr_info("%llu\n",mm->owner);
+            if(!mm){
+                uvm_va_space_up_read(va_space);
+                continue;
+            }
+            if(!mm->owner){
+            uvm_va_space_mm_release(va_space);
+            uvm_va_space_up_read(va_space);
+                continue;
+            }
+            
+            //pr_info("checking........ !!\n");
+            
+            if(mm && mm->owner->pid){
+            
+            *(pids+count)=mm->owner->pid;
+            pr_info("id assigned, %d\n",*(pids+count));
+            pr_info("id assigned actual, %d\n",mm->owner->pid);
+
+            count++;
+            
+            
+            //pr_info("owner got it !!\n");
+            
+            }
+
+
+            uvm_va_space_mm_release(va_space);
+
+            uvm_va_space_up_read(va_space);
+
+
+    }
+    uvm_mutex_unlock(&g_uvm_global.va_spaces.lock);
+    //uvm_down_read(&va_space->lock);
+   pr_info("ending loop, begning copy..\n");
+    NV_COPY_TO_USER(params->tablePtr,(NvU64)(pids),45*sizeof(unsigned int));
+    pr_info("ending loop, ending copy..\n");
+
+    //uvm_up_read(&va_space->lock);
 
     return status;
 }
@@ -2705,6 +3066,69 @@ static NV_STATUS uvm_tools_get_processor_uuid_table_common(UVM_TOOLS_GET_PROCESS
 
     return NV_OK;
 }
+
+
+NV_STATUS uvm_api_tools_get_gpus_uuid(UVM_TOOLS_GET_GPUs_UUID_PARAMS *params, struct file* filp){
+    {
+    NvProcessorUuid *uuids;
+    NvU64 remaining;
+    uvm_gpu_t *gpu;
+    NvU32 status;
+    uvm_va_space_t *va_space;
+
+     struct file* uvm_file = fget(params->uvmFd);
+    if (uvm_file == NULL) {
+        pr_info("check.....\n");
+        status = NV_ERR_INSUFFICIENT_PERMISSIONS;
+        return status;
+    }
+
+    if (!uvm_file_is_nvidia_uvm(uvm_file)) {
+        pr_info("check.....123\n");
+        fput(uvm_file);
+        uvm_file = NULL;
+        status = NV_ERR_INSUFFICIENT_PERMISSIONS;
+        return status;
+    }
+
+    uuids = uvm_kvmalloc_zero(sizeof(NvProcessorUuid)*UVM_ID_MAX_PROCESSORS);
+    if (uuids == NULL)
+        return NV_ERR_NO_MEMORY;
+
+    uvm_uuid_copy(&uuids[UVM_ID_CPU_VALUE], &NV_PROCESSOR_UUID_CPU_DEFAULT);
+    
+
+    va_space = uvm_va_space_get(uvm_file);
+
+    uvm_va_space_down_read(va_space);
+
+    for_each_va_space_gpu(gpu, va_space){
+        NvU32 id_value;
+        const NvProcessorUuid *uuid;
+        
+            id_value = uvm_id_value(gpu->id);
+            //pr_info("%d\n",id_value);
+            uuid = &gpu->uuid;
+        
+        //pr_info("%d\n",uuid[0]);
+        uvm_uuid_copy(&uuids[id_value], uuid);
+    }
+
+    uvm_va_space_up_read(va_space);
+
+    remaining = copy_to_user((void *)params->tablePtr, uuids, sizeof(NvProcessorUuid) * UVM_ID_MAX_PROCESSORS);
+
+    uvm_kvfree(uuids);
+
+    if (remaining != 0)
+        return NV_ERR_INVALID_ADDRESS;
+
+    return NV_OK;
+}
+}
+
+
+
 
 NV_STATUS uvm_api_tools_get_processor_uuid_table(UVM_TOOLS_GET_PROCESSOR_UUID_TABLE_PARAMS *params, struct file *filp)
 {

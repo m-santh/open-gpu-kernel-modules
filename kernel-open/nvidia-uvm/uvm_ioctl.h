@@ -1097,6 +1097,7 @@ typedef UVM_TOOLS_INIT_EVENT_TRACKER_PARAMS UVM_TOOLS_INIT_EVENT_TRACKER_V2_PARA
 #define UVM_TOOLS_GET_PROCESSOR_UUID_TABLE_V2                         UVM_IOCTL_BASE(77)
 typedef UVM_TOOLS_GET_PROCESSOR_UUID_TABLE_PARAMS UVM_TOOLS_GET_PROCESSOR_UUID_TABLE_V2_PARAMS;
 
+
 //
 // UvmAllocDeviceP2P
 //
@@ -1120,6 +1121,32 @@ typedef struct
 {
     NV_STATUS       rmStatus; // OUT
 } UVM_CLEAR_ALL_ACCESS_COUNTERS_PARAMS;
+
+
+#define UVM_TOOLS_GET_GPUs_UUID                                        UVM_IOCTL_BASE(80)
+typedef struct
+{
+    NvU64     tablePtr                 NV_ALIGN_BYTES(8); //IN
+    NvU32      uvmFd;                 // IN
+    NV_STATUS rmStatus;                                   // OUT
+} UVM_TOOLS_GET_GPUs_UUID_PARAMS;
+
+
+#define UVM_TOOLS_GET_CURRENT_COUNTER_VALUES                                       UVM_IOCTL_BASE(81)
+typedef struct
+{
+    NvU64     tablePtr                 NV_ALIGN_BYTES(8);                  // IN
+    NvU32     device_id                ;
+    NV_STATUS rmStatus;                                   // OUT
+} UVM_TOOLS_GET_CURRENT_COUNTER_VALUES_PARAMS;
+
+
+#define UVM_TOOLS_GET_UVM_PIDS                              UVM_IOCTL_BASE(82)
+typedef struct
+{
+    NvU64     tablePtr                 NV_ALIGN_BYTES(8);  // IN 
+    NV_STATUS rmStatus;                                   // OUT
+} UVM_TOOLS_GET_UVM_PIDS_PARAMS;
 
 //
 // Temporary ioctls which should be removed before UVM 8 release

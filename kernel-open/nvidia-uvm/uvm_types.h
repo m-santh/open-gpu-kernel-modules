@@ -311,6 +311,28 @@ typedef enum
     // number of faults reported on the GPU
     //
     UvmCounterNameGpuPageFaultCount = 9,
+
+    //number of evictions GPU uuid
+    UvmCounterNameGpuEvictions = 10,
+
+    //num pages resident on GPU
+    UvmCounterNameGpuResident = 11,
+
+    //num pages resident on CPU
+    UvmCounterNameCPUResident = 12,
+
+    //gpu memory allocated
+    UvmCounterNameGpuMemory  = 13,
+
+
+    //other process memeory evicted
+    UvmCounterNameOtherProcess=14,
+
+    
+    //counter for pages that are thrashing
+    UvmCounternameThrashingPages=15,
+    
+    
     UVM_TOTAL_COUNTERS
 } UvmCounterName;
 
@@ -324,7 +346,12 @@ typedef enum
 #define UVM_COUNTER_NAME_FLAG_PREFETCH_BYTES_XFER_HTD 0x80
 #define UVM_COUNTER_NAME_FLAG_PREFETCH_BYTES_XFER_DTH 0x100
 #define UVM_COUNTER_NAME_FLAG_GPU_PAGE_FAULT_COUNT 0x200
-
+#define UVM_COUNTER_NAME_FLAG_GPU_EVICTION_COUNT 0x400
+#define UVM_COUNTER_NAME_FLAG_GPU_RESIDENT_COUNT 0x800
+#define UVM_COUNTER_NAME_FLAG_CPU_RESIDENT_COUNT 0x1000
+#define UVM_COUNTER_NAME_FLAG_GPU_MEMORY_ALLOCATED 0x2000
+#define UVM_COUNTER_NAME_FLAG_OTHER_PROCESS_GPU_MEMORY_EVICTED 0x4000
+#define UVM_COUNTER_NAME_THRASHING_PAGES 0x8000
 //------------------------------------------------------------------------------
 // UVM counter config structure
 //

@@ -1202,6 +1202,9 @@ static void update_batch_and_notify_fault(uvm_gpu_t *gpu,
     else
         batch_context->num_duplicate_faults += current_entry->num_instances - 1;
 
+    
+    /*uvm_assert_rwsem_locked_write(&current_entry->va_space->lock);
+    current_entry->va_space->permanent_counters[gpu->id.val][UvmCounterNameGpuPageFaultCount]++;*/
     uvm_perf_event_notify_gpu_fault(&current_entry->va_space->perf_events,
                                     va_block,
                                     gpu->id,
