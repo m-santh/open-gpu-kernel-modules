@@ -367,11 +367,13 @@ static NV_STATUS service_managed_fault_in_block_locked(uvm_va_block_t *va_block,
     UVM_ASSERT(fault_entry->fault_address <= va_block->end);
 
     policy = uvm_va_policy_get(va_block, fault_entry->fault_address);
-
+    pr_info("........non-replayable fault..... flow\n");
     if (service_context->num_retries == 0) {
         // notify event to tools/performance heuristics. For now we use a
         // unique batch id per fault, since we clear the faulted channel for
         // each fault.
+       /* uvm_assert_rwsem_locked_write(&va_space->lock);
+        va_space->permanent_counters[gpu->id.val][UvmCounterNameGpuPageFaultCount]++;*/
         uvm_perf_event_notify_gpu_fault(&va_space->perf_events,
                                         va_block,
                                         gpu->id,
@@ -561,6 +563,8 @@ static NV_STATUS service_non_managed_fault(uvm_gpu_va_space_t *gpu_va_space,
     UVM_ASSERT(fault_entry->gpu == gpu);
 
     // Avoid dropping fault events when the VA block is not found or cannot be created
+    /*uvm_assert_rwsem_locked_write(&va_space->lock);
+    va_space->permanent_counters[gpu->id.val][UvmCounterNameGpuPageFaultCount]++;*/
     uvm_perf_event_notify_gpu_fault(&va_space->perf_events,
                                     NULL,
                                     gpu->id,

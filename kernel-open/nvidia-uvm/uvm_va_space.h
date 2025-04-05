@@ -23,7 +23,7 @@
 
 #ifndef __UVM_VA_SPACE_H__
 #define __UVM_VA_SPACE_H__
-
+#define DRIVER_STATE 1
 #include "uvm_processors.h"
 #include "uvm_global.h"
 #include "uvm_gpu.h"
@@ -146,7 +146,12 @@ typedef struct
 } uvm_cpu_gpu_affinity_t;
 
 struct uvm_va_space_struct
-{
+{   
+    
+    
+
+    NvU64 permanent_counters[UVM_MAX_PROCESSORS][UVM_TOTAL_COUNTERS];
+
     // Mask of gpus registered with the va space
     uvm_processor_mask_t registered_gpus;
 
