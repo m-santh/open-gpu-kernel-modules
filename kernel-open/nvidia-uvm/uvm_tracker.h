@@ -61,6 +61,9 @@ typedef struct
     // Max number of entries that the entries array can store currently
     NvU32 max_size;
 
+    //va space back pointer
+    uvm_va_space_t* va_space;
+
 } uvm_tracker_t;
 
 // Static initializer for a tracker.

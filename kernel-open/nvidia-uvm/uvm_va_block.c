@@ -2001,6 +2001,7 @@ static NV_STATUS block_populate_pages_cpu(uvm_va_block_t *block,
         // A smaller chunk than the maximum size may have been allocated, update the region accordingly.
         region = uvm_va_block_chunk_region(block, uvm_cpu_chunk_get_size(chunk), page_index);
         status = block_add_cpu_chunk(block, node_pages_mask, chunk, region);
+        uvm_perf_event_notify_gpu_memory_update(&va_space->perf_events,UVM_ID_CPU,1<<chunk->log2_size,1,block);
         if (status != NV_OK)
             return status;
 
@@ -2064,7 +2065,8 @@ static NV_STATUS block_alloc_gpu_chunk(uvm_va_block_t *block,
 {
     NV_STATUS status = NV_OK;
     uvm_gpu_chunk_t *gpu_chunk;
-
+    uvm_va_space_t* va_space = uvm_va_block_get_va_space(block);
+    gpu->pmm.calling_va_space=va_space;
     // First try getting a free chunk from previously-made allocations.
     gpu_chunk = block_retry_get_free_chunk(retry, gpu, size);
     if (!gpu_chunk) {
@@ -2100,6 +2102,11 @@ static NV_STATUS block_alloc_gpu_chunk(uvm_va_block_t *block,
     }
 
     *out_gpu_chunk = gpu_chunk;
+    uvm_perf_event_notify_gpu_memory_update(&va_space->perf_events,
+                                                   gpu->id,
+                                                   size,
+                                                   true,
+                                                   block);
     return NV_OK;
 }
 
@@ -4563,6 +4570,10 @@ static void block_copy_set_first_touch_residency(uvm_va_block_t *block,
     uvm_page_index_t page_index;
     uvm_page_mask_t *resident_mask = uvm_va_block_resident_mask_get(block, dst_id, NUMA_NO_NODE);
     uvm_page_mask_t *first_touch_mask = &block_context->make_resident.page_mask;
+    uvm_va_space_t* va_space;
+    //uvm_mutex_lock(&va_block->lock);
+    va_space = uvm_va_block_get_va_space_maybe_dead(block);
+    //uvm_mutex_unlock(&va_block->lock);
 
     if (page_mask)
         uvm_page_mask_andnot(first_touch_mask, page_mask, resident_mask);
@@ -4570,12 +4581,19 @@ static void block_copy_set_first_touch_residency(uvm_va_block_t *block,
         uvm_page_mask_complement(first_touch_mask, resident_mask);
 
     uvm_page_mask_region_clear_outside(first_touch_mask, region);
-
+    NvU32 count=0;
     for_each_va_block_page_in_mask(page_index, first_touch_mask, block) {
         UVM_ASSERT(!block_is_page_resident_anywhere(block, page_index));
         UVM_ASSERT(block_processor_page_is_populated(block, dst_id, page_index));
         UVM_ASSERT(block_check_resident_proximity(block, block_context, page_index, dst_id));
+        count++;
     }
+        /*uvm_assert_rwsem_locked_write(&va_space->lock);
+        if(UVM_ID_IS_CPU(dst_id))
+         va_space->permanent_counters[dst_id.val][UvmCounterNameCPUResident]+=count;
+        else
+         va_space->permanent_counters[dst_id.val][UvmCounterNameGpuResident]+=count;*/
+    uvm_perf_event_notify_gpu_residency_update(&va_space->perf_events,block,dst_id,UVM_ID_INVALID,count);
 
     if (UVM_ID_IS_CPU(dst_id)) {
         uvm_va_block_cpu_set_resident_all_chunks(block, block_context, first_touch_mask);
@@ -4970,6 +4988,11 @@ static void block_make_resident_update_state(uvm_va_block_t *va_block,
                                              uvm_page_mask_t *copy_mask,
                                              uvm_make_resident_cause_t cause)
 {
+    
+     uvm_va_space_t* va_space;
+     uvm_page_index_t page_index;
+     va_space = uvm_va_block_get_va_space_maybe_dead(va_block);
+    
     if (UVM_ID_IS_CPU(dst_id)) {
         // CPU chunks may not have been allocated on the preferred NUMA node. So,
         // the residency has to be updated based on the chunk's NUMA ID.
@@ -4979,6 +5002,12 @@ static void block_make_resident_update_state(uvm_va_block_t *va_block,
         uvm_page_mask_t *dst_resident_mask = uvm_va_block_resident_mask_get(va_block, dst_id, NUMA_NO_NODE);
 
         uvm_page_mask_or(dst_resident_mask, dst_resident_mask, copy_mask);
+         /*NvU32 count=0;
+            for_each_va_block_page_in_mask(page_index, copy_mask, va_block) {
+                    count++;
+            }*/
+
+       // uvm_perf_event_notify_gpu_residency_update(&va_space->perf_events,va_block,dst_id,count);
     }
 
     block_set_resident_processor(va_block, dst_id);
@@ -12439,6 +12468,9 @@ static NV_STATUS block_cpu_fault_locked(uvm_va_block_t *va_block,
         // is running on unless CPU affinity has been set to limit which CPUs
         // this thread is allowed to to run on.
         // TODO: Bug 4748153: UVM: avoid using incorrect CPU ID.
+        
+       /* uvm_assert_rwsem_locked_write(&va_space->lock);
+        va_space->permanent_counters[0][UvmCounterNameCpuPageFaultCount]++;*/
         uvm_perf_event_notify_cpu_fault(&va_space->perf_events,
                                         va_block,
                                         policy->preferred_location,
@@ -13094,9 +13126,20 @@ NV_STATUS uvm_va_block_evict_chunks(uvm_va_block_t *va_block,
         if (!uvm_gpu_chunk_same_root(chunk, root_chunk))
             continue;
 
+        if((unsigned long long)va_space != (unsigned long long)gpu->pmm.calling_va_space){
+
+            uvm_perf_event_notify_other_process_evicted(&gpu->pmm.calling_va_space->perf_events,gpu->id,1 << gpu_state->chunks[i]->log2_size);
+        }
+        
+        
         uvm_mmu_chunk_unmap(chunk, tracker);
 
         uvm_pmm_gpu_mark_chunk_evicted(&gpu->pmm, gpu_state->chunks[i]);
+        uvm_perf_event_notify_gpu_memory_update(&va_space->perf_events,
+                                                   gpu->id,
+                                                   1 << gpu_state->chunks[i]->log2_size,
+                                                   false,
+                                                   va_block);
         gpu_state->chunks[i] = NULL;
     }
 

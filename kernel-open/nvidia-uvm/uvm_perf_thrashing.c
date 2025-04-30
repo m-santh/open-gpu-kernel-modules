@@ -559,7 +559,7 @@ static void va_space_thrashing_info_init_params(va_space_thrashing_info_t *va_sp
 {
     UVM_ASSERT(!va_space_thrashing->params.test_overrides);
 
-    va_space_thrashing->params.enable = g_uvm_perf_thrashing_enable;
+    va_space_thrashing->params.enable = uvm_perf_thrashing_enable;
 
     // Snap the thrashing parameters so that they can be tuned per VA space
     va_space_thrashing->params.threshold     = g_uvm_perf_thrashing_threshold;
@@ -648,12 +648,13 @@ static block_thrashing_info_t *thrashing_info_get_create(uvm_va_block_t *va_bloc
 
     BUILD_BUG_ON((1 << 8 * sizeof(block_thrashing->num_thrashing_pages)) < PAGES_PER_UVM_VA_BLOCK);
     BUILD_BUG_ON((1 << 16) < UVM_ID_MAX_PROCESSORS);
-
+    pr_info("block thrashing 1\n");
     if (!block_thrashing) {
+        pr_info("block thrashing 2\n");
         block_thrashing = nv_kmem_cache_zalloc(g_va_block_thrashing_info_cache, NV_UVM_GFP_FLAGS);
         if (!block_thrashing)
             goto done;
-
+        pr_info("block thrashing 3\n");
         block_thrashing->last_processor = UVM_ID_INVALID;
         INIT_LIST_HEAD(&block_thrashing->pinned_pages.list);
 
@@ -684,7 +685,7 @@ void thrashing_block_destroy_cb(uvm_perf_event_t event_id, uvm_perf_event_data_t
 {
     uvm_va_block_t *va_block;
 
-    UVM_ASSERT(g_uvm_perf_thrashing_enable);
+    UVM_ASSERT(uvm_perf_thrashing_enable);
 
     UVM_ASSERT(event_id == UVM_PERF_EVENT_BLOCK_DESTROY ||
                event_id == UVM_PERF_EVENT_BLOCK_SHRINK ||
@@ -708,7 +709,7 @@ void thrashing_block_munmap_cb(uvm_perf_event_t event_id, uvm_perf_event_data_t 
     uvm_va_block_t *va_block = event_data->block_munmap.block;
     uvm_va_block_region_t region = event_data->block_munmap.region;
 
-    UVM_ASSERT(g_uvm_perf_thrashing_enable);
+    UVM_ASSERT(uvm_perf_thrashing_enable);
     UVM_ASSERT(event_id == UVM_PERF_EVENT_BLOCK_MUNMAP);
     UVM_ASSERT(va_block);
 
@@ -1241,10 +1242,10 @@ void thrashing_event_cb(uvm_perf_event_t event_id, uvm_perf_event_data_t *event_
     uvm_va_block_region_t region;
     uvm_read_duplication_policy_t read_duplication;
 
-    UVM_ASSERT(g_uvm_perf_thrashing_enable);
+    UVM_ASSERT(uvm_perf_thrashing_enable);
 
     UVM_ASSERT(event_id == UVM_PERF_EVENT_MIGRATION || event_id == UVM_PERF_EVENT_REVOCATION);
-
+    pr_info("hello, hi\n");
     if (event_id == UVM_PERF_EVENT_MIGRATION) {
         va_block     = event_data->migration.block;
         address      = event_data->migration.address;
@@ -1253,9 +1254,14 @@ void thrashing_event_cb(uvm_perf_event_t event_id, uvm_perf_event_data_t *event_
 
         // Skip the thrashing detection logic on eviction as we cannot take
         // the VA space lock
-        if (event_data->migration.cause == UVM_MAKE_RESIDENT_CAUSE_EVICTION)
+       
+        pr_info("hello, hi, hi\n");
+        if (event_data->migration.cause == UVM_MAKE_RESIDENT_CAUSE_EVICTION){
+            
+            //block_thrashing = thrashing_info_get_create(va_block);
+            //block_thrashing->last_processor=processor_id;
             return;
-
+        }
         // Do not perform checks during the first part of staging copies
         if (!uvm_id_equal(event_data->migration.dst, event_data->migration.make_resident_context->dest_id))
             return;
@@ -1309,6 +1315,7 @@ void thrashing_event_cb(uvm_perf_event_t event_id, uvm_perf_event_data_t *event_
     }
 
     block_thrashing = thrashing_info_get_create(va_block);
+   pr_info("hui hui hui\n");
     if (!block_thrashing)
         return;
 
@@ -1319,10 +1326,12 @@ void thrashing_event_cb(uvm_perf_event_t event_id, uvm_perf_event_data_t *event_
         NvU16 num_block_pages;
 
         if (block_thrashing->last_time_stamp == 0 ||
-            uvm_id_equal(block_thrashing->last_processor, processor_id) ||
-            time_stamp - block_thrashing->last_time_stamp > va_space_thrashing->params.lapse_ns)
-            goto done;
-
+            //uvm_id_equal(block_thrashing->last_processor, processor_id) ||
+            time_stamp - block_thrashing->last_time_stamp > va_space_thrashing->params.lapse_ns){
+                pr_info("%llu,%llu\n",time_stamp - block_thrashing->last_time_stamp,va_space_thrashing->params.lapse_ns);
+                pr_info("hui hui hui :) :) 1,2,3,4\n");
+            goto done;}
+pr_info("hui hui hui :) :)\n");
         num_block_pages = uvm_va_block_size(va_block) / PAGE_SIZE;
 
         block_thrashing->pages = uvm_kvmalloc_zero(sizeof(*block_thrashing->pages) * num_block_pages);
@@ -1351,11 +1360,12 @@ void thrashing_event_cb(uvm_perf_event_t event_id, uvm_perf_event_data_t *event_
 
         uvm_processor_mask_set(&page_thrashing->processors, processor_id);
         page_thrashing_set_time_stamp(page_thrashing, time_stamp);
-
+        pr_info("hui hui hui 1212\n");
         if (last_time_stamp == 0)
             continue;
-
+        pr_info("%llu\n",time_stamp - last_time_stamp);
         if (time_stamp - last_time_stamp <= va_space_thrashing->params.lapse_ns) {
+            
             UVM_PERF_SATURATING_INC(page_thrashing->num_thrashing_events);
             if (page_thrashing->num_thrashing_events == va_space_thrashing->params.threshold)
                 thrashing_detected(va_block, block_thrashing, page_thrashing, page_index, processor_id);
@@ -1785,7 +1795,7 @@ uvm_processor_mask_t *uvm_perf_thrashing_get_thrashing_processors(uvm_va_block_t
     page_thrashing_info_t *page_thrashing = NULL;
     uvm_page_index_t page_index = uvm_va_block_cpu_page_index(va_block, address);
 
-    UVM_ASSERT(g_uvm_perf_thrashing_enable);
+    UVM_ASSERT(uvm_perf_thrashing_enable);
     UVM_ASSERT(va_space_thrashing->params.enable);
 
     block_thrashing = thrashing_info_get(va_block);
@@ -1978,7 +1988,7 @@ NV_STATUS uvm_perf_thrashing_init(void)
     NV_STATUS status;
 
     INIT_THRASHING_PARAMETER_TOGGLE(uvm_perf_thrashing_enable, UVM_PERF_THRASHING_ENABLE_DEFAULT);
-    if (!g_uvm_perf_thrashing_enable)
+    if (!uvm_perf_thrashing_enable)
         return NV_OK;
 
     uvm_perf_module_init("perf_thrashing",
@@ -2085,7 +2095,7 @@ NV_STATUS uvm_test_set_page_thrashing_policy(UVM_TEST_SET_PAGE_THRASHING_POLICY_
     if (params->policy >= UVM_TEST_PAGE_THRASHING_POLICY_MAX)
         return NV_ERR_INVALID_ARGUMENT;
 
-    if (!g_uvm_perf_thrashing_enable)
+    if (!uvm_perf_thrashing_enable)
         return NV_ERR_INVALID_STATE;
 
     uvm_va_space_down_write(va_space);

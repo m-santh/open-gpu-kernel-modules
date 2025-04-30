@@ -31,6 +31,7 @@
 #define UVM_PROC_DIR_NAME "driver/nvidia-uvm"
 #define UVM_PROC_GPUS_DIR_NAME "gpus"
 #define UVM_PROC_CPU_DIR_NAME "cpu"
+#define CONFIG_PROC_FS 1
 
 #if defined(CONFIG_PROC_FS)
   // This parameter enables additional debug procfs entries. It's enabled by

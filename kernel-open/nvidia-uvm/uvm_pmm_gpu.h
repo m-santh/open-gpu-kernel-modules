@@ -375,6 +375,8 @@ typedef struct uvm_pmm_gpu_struct
     bool initialized;
 
     bool pma_address_cache_initialized;
+
+    uvm_va_space_t* calling_va_space;
 } uvm_pmm_gpu_t;
 
 // Return containing GPU
