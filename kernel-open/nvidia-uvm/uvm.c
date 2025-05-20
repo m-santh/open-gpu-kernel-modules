@@ -1211,11 +1211,11 @@ static void uvm_chardev_exit(void)
 size_t cgroup_mem_available = -1;
 bool cgroup_initialized = false;
 
-int cgroup_gpu_param1 = 1;
-//char *param2 = "default";
-
-module_param(cgroup_gpu_param1, int, 0644);
-MODULE_PARM_DESC(param1, "An integer param 0 = current algo 1 = new algo");
+// int cgroup_gpu_param1 = 1;
+// //char *param2 = "default";
+//
+// module_param(cgroup_gpu_param1, int, 0644);
+// MODULE_PARM_DESC(param1, "An integer param 0 = current algo 1 = new algo");
 
 void get_cgroup_mem_info(size_t *total_mem) {
     uvm_gpu_id_t gpu_id;
@@ -1356,7 +1356,7 @@ static int uvm_init(void)
         goto error;
     }
 
-    pr_info("Loaded the UVM driver, major device number %d.\n", MAJOR(g_uvm_base_dev));
+    pr_info("Loaded the UVM driver, major device number %d __MODDED__.\n", MAJOR(g_uvm_base_dev));
 
     if (uvm_enable_builtin_tests)
         pr_info("Built-in UVM tests are enabled. This is a security risk.\n");

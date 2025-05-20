@@ -48,6 +48,8 @@
 #endif
 
 #include "linux/dma-buf.h"
+#include <linux/iosys-map.h>
+
 
 #include "nv-mm.h"
 
@@ -75,6 +77,7 @@ void nv_drm_gem_free(struct drm_gem_object *gem)
 #if defined(NV_LINUX_IOSYS_MAP_H_PRESENT)
 typedef struct iosys_map nv_sysio_map_t;
 #else
+#error "no here"
 typedef struct dma_buf_map nv_sysio_map_t;
 #endif
 
@@ -87,16 +90,21 @@ static int nv_drm_gem_vmap(struct drm_gem_object *gem,
     } else if (IS_ERR(vaddr)) {
         return PTR_ERR(vaddr);
     }
-    map->vaddr = vaddr;
-    map->is_iomem = true;
+    iosys_map_set_vaddr_iomem(map, vaddr);
+
+    //map->vaddr = vaddr;
+    //map->is_iomem = true;
     return 0;
 }
 
 static void nv_drm_gem_vunmap(struct drm_gem_object *gem,
                               nv_sysio_map_t *map)
 {
-    nv_drm_gem_prime_vunmap(gem, map->vaddr);
-    map->vaddr = NULL;
+    nv_drm_gem_prime_vunmap(gem, map);
+    //map->vaddr = NULL;
+    //nv_drm_gem_prime_vunmap(gem, iosys_map_set_vaddr(map));
+    iosys_map_clear(map);
+
 }
 #endif
 
