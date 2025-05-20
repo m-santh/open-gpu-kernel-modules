@@ -676,6 +676,14 @@ static void gpu_info_print_common(uvm_gpu_t *gpu, struct seq_file *s)
         UVM_SEQ_OR_DBG_PRINT(s, "dma_buffer_pool_num_buffers             %lu\n",
                              gpu->conf_computing.dma_buffer_pool.num_dma_buffers);
     }
+#ifdef CGROUP_GPU_MEM
+    /*
+    UVM_SEQ_OR_DBG_PRINT(s, "total global GPU memory: %llu\n", gpu->cgroup_gpu.total_global_mem);
+    UVM_SEQ_OR_DBG_PRINT(s, "total strict GPU memory: %llu\n", gpu->cgroup_gpu.total_stric_mem);
+    UVM_SEQ_OR_DBG_PRINT(s, "total propotionate GPU memory: %llu\n", gpu->cgroup_gpu.total_propotionate_mem);
+    UVM_SEQ_OR_DBG_PRINT(s, "total soft limit GPU memory: %llu\n", gpu->cgroup_gpu.current_total_soft_mem);
+    */
+#endif
 }
 
 static void

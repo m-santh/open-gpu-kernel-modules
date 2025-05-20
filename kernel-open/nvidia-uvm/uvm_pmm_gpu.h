@@ -285,6 +285,9 @@ struct uvm_gpu_chunk_struct
     // This field is always NULL in kernel chunks.
     uvm_va_block_t *va_block;
 
+#ifdef CGROUP_GPU_MEM
+    NvU64 timestamp;
+#endif
     // If this is subchunk it points to the parent - in other words
     // chunk of bigger size which contains this chunk.
     uvm_gpu_chunk_t *parent;
@@ -445,7 +448,8 @@ NV_STATUS uvm_pmm_gpu_alloc_user(uvm_pmm_gpu_t *pmm,
                                  uvm_chunk_size_t chunk_size,
                                  uvm_pmm_alloc_flags_t flags,
                                  uvm_gpu_chunk_t **chunks,
-                                 uvm_tracker_t *out_tracker);
+                                 uvm_tracker_t *out_tracker,
+				 uvm_va_space_t *victim);
 
 // Kernel memory allocator.
 //

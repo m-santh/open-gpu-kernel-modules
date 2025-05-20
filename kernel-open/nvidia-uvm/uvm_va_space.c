@@ -43,6 +43,225 @@
 #include "nv-kthread-q.h"
 #include <linux/mmzone.h>
 
+#ifdef CGROUP_GPU_MEM
+#include <linux/cgroup_gpu_mem.h>
+//#include <float.h>
+
+#include <linux/timekeeping.h>
+
+static inline NvU64 get_cgroup_hard_limit(uvm_va_space_t *va_space)
+{
+    unsigned long hard_limit, soft_limit, prop_limit;
+    int mode, weight, eviction;
+    //pr_info("function: %s line: %d\n", __func__, __LINE__);
+    if(va_space == NULL)
+        return DEFAULT_GPU_HARD_LIMIT;
+
+    if(get_gpu_mem_cgroup_task_limits(va_space->cgroup_info.task, &hard_limit, &soft_limit, &prop_limit, &mode, &weight, &eviction) == 0)
+    {
+        pr_info(" after get cgroup hard limit  hard %lx prop %lx mode %d\n", hard_limit, prop_limit, mode);
+        if (mode == STRICT_MODE)
+        {
+            return hard_limit;
+        }
+        else
+        {
+            return prop_limit;
+        }
+    }
+        pr_info(" after get cgroup hard limit error default hard %lx \n", DEFAULT_GPU_HARD_LIMIT);
+    return DEFAULT_GPU_HARD_LIMIT;
+}
+
+static void get_cgroup_mem_task_usage(unsigned long *strict_hard_limit, unsigned long *strict_soft_limit,
+                unsigned long *prop_hard_limit, unsigned long *prop_soft_limit, unsigned long *prop_weight)
+{
+
+    uvm_va_space_t *cg_va_space;
+    extern bool cgroup_initialized;
+
+    *strict_hard_limit = 0;
+    *strict_soft_limit = 0;
+    *prop_hard_limit = 0;
+    *prop_soft_limit  = 0;
+    *prop_weight  = 0;
+
+    if (cgroup_initialized == false)
+            return;
+
+    pr_info("function: %s line: %d\n", __func__, __LINE__);
+    uvm_mutex_lock(&g_uvm_global.va_spaces.lock);
+    list_for_each_entry(cg_va_space, &g_uvm_global.va_spaces.list, list_node)
+    {
+        unsigned long hard_limit, soft_limit, prop_limit;
+        int mode, weight, eviction;
+        pr_info("function: %s line: %d\n", __func__, __LINE__);
+        if(get_gpu_mem_cgroup_task_limits(cg_va_space->cgroup_info.task, &hard_limit, &soft_limit, &prop_limit, &mode, &weight, &eviction) == 0)
+        {
+            if (mode == STRICT_MODE)
+            {
+                *strict_hard_limit += hard_limit;
+                *strict_soft_limit += soft_limit;
+            }
+            else
+            {
+                *prop_hard_limit += prop_limit;
+                *prop_soft_limit += soft_limit;
+                *prop_weight += (unsigned long) weight;
+            }
+        }
+    }
+    uvm_mutex_unlock(&g_uvm_global.va_spaces.lock);
+    pr_info(" after cgroup mem task usage before lock strict hd %lx strict sd %lx  prop hd %lx prop sd %lx  weight %ld\n",
+            *strict_hard_limit, *strict_soft_limit, *prop_hard_limit, *prop_soft_limit, *prop_weight);
+
+}
+
+static NV_STATUS update_cgroup_prop_limit(unsigned long available_for_prop, unsigned long total_weight)
+{
+    uvm_va_space_t *cg_va_space;
+    extern bool cgroup_initialized;
+
+    if (cgroup_initialized == false || total_weight == 0 || available_for_prop == 0)
+            return NV_OK;
+    pr_info("function: %s line: %d\n", __func__, __LINE__);
+    uvm_mutex_lock(&g_uvm_global.va_spaces.lock);
+    list_for_each_entry(cg_va_space, &g_uvm_global.va_spaces.list, list_node)
+    {
+        unsigned long hard_limit, soft_limit, prop_limit;
+        int mode, weight, eviction;
+        pr_info("function: %s line: %d\n", __func__, __LINE__);
+        if(get_gpu_mem_cgroup_task_limits(cg_va_space->cgroup_info.task, &hard_limit, &soft_limit, &prop_limit, &mode, &weight, &eviction) == 0)
+        {
+            if (mode == PROPORTIONATE_MODE)
+            {
+                prop_limit = weight * available_for_prop / total_weight;
+                pr_info(" setting prop limit %;x  update cgroup prop limit loop 1 mem-usage %lx \n", prop_limit, cg_va_space->cgroup_info.current_gpu_mem_usage);
+                if (set_gpu_mem_cgroup_task_limits(cg_va_space->cgroup_info.task, prop_limit, cg_va_space->cgroup_info.current_gpu_mem_usage) != 0)
+                {
+                    uvm_mutex_unlock(&g_uvm_global.va_spaces.lock);
+                    return NV_ERR_GENERIC;
+                }
+            }
+        }
+    }
+    uvm_mutex_unlock(&g_uvm_global.va_spaces.lock);
+    return NV_OK;
+}
+
+uvm_va_space_t *uvm_va_space_find_max_over_limit_va_space(uvm_gpu_t *gpu, uvm_va_space_t *va_space)
+{
+    uvm_va_space_t *victim = NULL;
+    NvU64 max_score = 0;
+    NvU64 max_evict_ctr = 0;
+    NvU64 max_evict_time = 0;
+    NvU64 now = ktime_get_real_ms();
+    uvm_va_space_t *cg_va_space;
+    extern bool cgroup_initialized;
+
+    if (cgroup_initialized == false || va_space == NULL)
+            return NULL;
+
+    { /* Check if self needs to be evicted */
+    /* for now we give equal fair chance 
+        NvU64 hard_limit = get_cgroup_hard_limit(va_space);
+        NvU64 actual_usage = va_space->cgroup_info.current_gpu_mem_usage;
+
+        if (actual_usage > hard_limit)
+        return va_space;
+        */
+    }
+    //pr_info("function: %s line: %d\n", __func__, __LINE__);
+    //uvm_mutex_lock(&g_uvm_global.va_spaces.lock);
+    /* first pass to normalize */
+    list_for_each_entry(cg_va_space, &g_uvm_global.va_spaces.list, list_node)
+    {
+        if ( ((NvU64)cg_va_space->cgroup_info.eviction_count) > ((NvU64)max_evict_ctr))
+            max_evict_ctr = cg_va_space->cgroup_info.eviction_count;
+
+        NvU64 time_since = now - cg_va_space->cgroup_info.last_evicted_time;
+
+        if (((NvU64)time_since) > ((NvU64)max_evict_time))
+            max_evict_time = time_since;
+
+    }
+
+    //pr_info("function: %s line: %d\n", __func__, __LINE__);
+    list_for_each_entry(cg_va_space, &g_uvm_global.va_spaces.list, list_node)
+    {
+        uvm_gpu_t *other_gpu;
+        bool found = false;
+
+        //pr_info("function: %s line: %d\n", __func__, __LINE__);
+	/*
+        for_each_va_space_gpu(other_gpu, cg_va_space)
+        {
+            if (uvm_id_equal(other_gpu->id, gpu->id))
+            {
+            found = true;
+            break;
+            }
+        }
+        pr_info("function: %s line: %d\n", __func__, __LINE__);
+
+        if (found == false)
+        {
+            continue;
+        }
+	*/
+
+        NvU64 hard_limit = get_cgroup_hard_limit(cg_va_space);
+        NvU64 actual_usage = cg_va_space->cgroup_info.current_gpu_mem_usage;
+
+	    /* Temp hack, always evict others */
+	    if (va_space != cg_va_space) {
+	        victim = cg_va_space;
+            pr_info("Identified eviction PID: %d current PID: %d\n", cg_va_space->cgroup_info.task->pid, va_space->cgroup_info.task->pid);
+	        break;
+	    }
+	    if (hard_limit == 0 || max_evict_ctr == 0 || max_evict_time == 0)
+            continue;
+
+        if (actual_usage > hard_limit ) {
+	        victim = cg_va_space;
+	        break;
+	    }
+
+        NvU64 oversub_score = ((NvU64)(actual_usage - hard_limit) / (NvU64)hard_limit);
+        NvU64 eviction_penalty = cg_va_space->cgroup_info.eviction_count / max_evict_ctr;
+
+        NvU64 time_since = now - cg_va_space->cgroup_info.last_evicted_time;
+        NvU64 time_penalty = time_since/ max_evict_time; // time decay;
+
+#define SUBSCRIPTION_WEIGHT    2
+#define EVICTION_WEIGHT        1
+#define TIME_WEIGHT        1
+        NvU64 score = (NvU64)(oversub_score * SUBSCRIPTION_WEIGHT + eviction_penalty * EVICTION_WEIGHT + ((NvU64)time_penalty) * TIME_WEIGHT);
+
+        if (score > max_score)
+        {
+            max_score = score;
+            victim = cg_va_space;
+        }
+
+    }
+    //pr_info("function: %s line: %d\n", __func__, __LINE__);
+    //uvm_mutex_unlock(&g_uvm_global.va_spaces.lock);
+	/*
+    if (victim != NULL)
+        pr_info("Eviction victim reset counters %ld, penalty %ld, time %ld, usage %lx\n",
+            victim->cgroup_info.eviction_count,
+            victim->cgroup_info.penalty_factor,
+            victim->cgroup_info.last_evicted_time,
+            victim->cgroup_info.current_gpu_mem_usage);
+			*/
+	if (victim == NULL)
+            pr_info("No victim could be identified for PID: %d\n", va_space->cgroup_info.task->pid);
+
+    return victim;
+}
+#endif
+
 static bool processor_mask_array_test(const uvm_processor_mask_t *mask,
                                       uvm_processor_id_t mask_id,
                                       uvm_processor_id_t id)
@@ -228,6 +447,75 @@ NV_STATUS uvm_va_space_create(struct address_space *mapping, uvm_va_space_t **va
         uvm_processor_mask_zero(&affinity->gpus);
     }
 
+#ifdef CGROUP_GPU_MEM
+    /* Check if the application has memory space */
+    unsigned long total_strict_hard_limit, total_strict_soft_limit, total_prop_hard_limit, total_prop_soft_limit, total_weight;
+
+    extern size_t cgroup_mem_available;
+    void get_cgroup_mem_info(size_t *total_mem);
+
+    if (cgroup_mem_available <= 0)
+    {
+        //pr_info("function: %s line: %d\n", __func__, __LINE__);
+
+        get_cgroup_mem_info(&cgroup_mem_available);
+        //pr_info("after first tine getting mem_avaiable %lx \n", cgroup_mem_available);
+    }
+    if (cgroup_mem_available > 0)
+    {
+
+        get_cgroup_mem_task_usage(&total_strict_hard_limit, &total_strict_soft_limit, &total_prop_hard_limit, &total_prop_soft_limit, &total_weight);
+
+        unsigned long hard_limit, soft_limit, prop_limit;
+        int mode, weight, eviction;
+        /* Get new prcess mode and limits */
+        if(get_gpu_mem_cgroup_task_limits(current, &hard_limit, &soft_limit, &prop_limit, &mode, &weight, &eviction) != 0)
+        {
+            status = NV_ERR_GENERIC;
+            goto fail;
+        }
+
+        unsigned long total_hard_needed = total_strict_hard_limit + total_prop_hard_limit + hard_limit;
+        // need to readjust prop-hard-limit based on weight
+        unsigned long available_for_prop = cgroup_mem_available - total_strict_hard_limit;
+
+        if (total_hard_needed > cgroup_mem_available)
+        {
+            if (mode ==  STRICT_MODE)
+            {
+                status = NV_ERR_NO_MEMORY;
+                goto fail;
+            }
+
+            if (available_for_prop <= 0)
+            {
+                status = NV_ERR_NO_MEMORY;
+                goto fail;
+            }
+
+            if (update_cgroup_prop_limit(available_for_prop, total_weight) != NV_OK)
+            {
+                status = NV_ERR_GENERIC;
+                goto fail;
+            }
+        }
+
+        if (mode == PROPORTIONATE_MODE && total_weight != 0)
+        {
+            prop_limit = weight * available_for_prop / total_weight;
+            if (set_gpu_mem_cgroup_task_limits(current, prop_limit, 0) != 0)
+            {
+                status = NV_ERR_GENERIC;
+                goto fail;
+            }
+        }
+    }
+    va_space->cgroup_info.last_evicted_time = ktime_get_real_ms();
+    va_space->cgroup_info.penalty_factor = 1;
+    //pr_info("function: %s line: %d\n", __func__, __LINE__);
+
+#endif
+
     init_waitqueue_head(&va_space->va_space_mm.last_retainer_wait_queue);
     init_waitqueue_head(&va_space->gpu_va_space_deferred_free.wait_queue);
 
@@ -269,6 +557,10 @@ NV_STATUS uvm_va_space_create(struct address_space *mapping, uvm_va_space_t **va
 
     uvm_va_space_up_write(va_space);
     uvm_up_write_mmap_lock(current->mm);
+
+#ifdef CGROUP_GPU_MEM
+    va_space->cgroup_info.task = current;
+#endif
 
     uvm_mutex_lock(&g_uvm_global.va_spaces.lock);
     list_add_tail(&va_space->list_node, &g_uvm_global.va_spaces.list);
@@ -585,6 +877,29 @@ void uvm_va_space_destroy(uvm_va_space_t *va_space)
     if (va_space->va_space_mm.state == UVM_VA_SPACE_MM_STATE_UNINITIALIZED)
         uvm_va_space_mm_unregister(va_space);
     UVM_ASSERT(!uvm_va_space_mm_alive(&va_space->va_space_mm));
+
+#ifdef CGROUP_GPU_MEM
+    /* Update prop mode if va-space task is prop mode */
+    unsigned long hard_limit, soft_limit, prop_limit;
+    int mode, weight, eviction;
+    extern size_t cgroup_mem_available;
+
+    //pr_info("function: %s line: %d\n", __func__, __LINE__);
+    /* Get new prcess mode and limits */
+    if((get_gpu_mem_cgroup_task_limits(current, &hard_limit, &soft_limit,
+                                    &prop_limit, &mode, &weight, &eviction) == 0) &&
+                    (mode == PROPORTIONATE_MODE) &&
+                    (cgroup_mem_available != -1))
+    {
+        unsigned long total_strict_hard_limit, total_strict_soft_limit, total_prop_hard_limit, total_prop_soft_limit, total_weight;
+
+        get_cgroup_mem_task_usage(&total_strict_hard_limit, &total_strict_soft_limit, &total_prop_hard_limit, &total_prop_soft_limit, &total_weight);
+
+        unsigned long available_for_prop = cgroup_mem_available - total_strict_hard_limit;
+        update_cgroup_prop_limit(available_for_prop, total_weight);
+        //pr_info("function: %s line: %d\n", __func__, __LINE__);
+    }
+#endif
 
     uvm_mutex_lock(&g_uvm_global.global_lock);
 

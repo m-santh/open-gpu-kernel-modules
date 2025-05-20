@@ -192,7 +192,7 @@ static NV_STATUS chunk_alloc_check(uvm_pmm_gpu_t *pmm,
         return NV_ERR_NO_MEMORY;
 
     if (mem_type == UVM_PMM_GPU_MEMORY_TYPE_USER)
-        status = uvm_pmm_gpu_alloc_user(pmm, num_chunks, chunk_size, flags, chunks, &local_tracker);
+        status = uvm_pmm_gpu_alloc_user(pmm, num_chunks, chunk_size, flags, chunks, &local_tracker, NULL);
     else
         status = uvm_pmm_gpu_alloc_kernel(pmm, num_chunks, chunk_size, flags, chunks, &local_tracker);
 
@@ -212,7 +212,7 @@ static NV_STATUS chunk_alloc_user_check(uvm_pmm_gpu_t *pmm,
     NV_STATUS status;
     uvm_tracker_t local_tracker = UVM_TRACKER_INIT();
 
-    status = uvm_pmm_gpu_alloc_user(pmm, num_chunks, chunk_size, flags, chunks, &local_tracker);
+    status = uvm_pmm_gpu_alloc_user(pmm, num_chunks, chunk_size, flags, chunks, &local_tracker, NULL);
     if (status != NV_OK)
         return status;
 
@@ -1191,7 +1191,7 @@ static NV_STATUS test_chunk_with_elevated_page(uvm_gpu_t *gpu)
                                               UVM_CHUNK_SIZE_MAX,
                                               UVM_PMM_ALLOC_FLAGS_EVICT,
                                               &parent_chunk,
-                                              NULL), out);
+                                              NULL, NULL), out);
 
     // Keep an extra reference to just one page within the parent chunk.
     // This will make the whole root chunk non-allocatable.

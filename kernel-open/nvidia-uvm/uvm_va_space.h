@@ -426,10 +426,33 @@ struct uvm_va_space_struct
         bool allow_allocation_from_movable;
     } test;
 
+#ifdef CGROUP_GPU_MEM
+    struct
+    {
+        struct task_struct *task;
+        NvU64 current_gpu_mem_usage;
+        NvU64 eviction_count;
+        NvU64 last_evicted_time;
+        NvU64 penalty_factor;
+    } cgroup_info;
+#else
+#error "not defined"
+#endif
+
     // Queue item for deferred f_ops->release() handling
     nv_kthread_q_item_t deferred_release_q_item;
 };
 
+#ifdef CGROUP_GPU_MEM
+static inline u64 ktime_get_real_ms(void)
+{
+    struct timespec64 ts;
+    ktime_get_real_ts64(&ts);
+    return (u64)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+}
+
+uvm_va_space_t *uvm_va_space_find_max_over_limit_va_space(uvm_gpu_t *gpu, uvm_va_space_t *va_space);
+#endif
 NV_STATUS uvm_va_space_create(struct address_space *mapping, uvm_va_space_t **va_space_ptr, NvU64 flags);
 void uvm_va_space_destroy(uvm_va_space_t *va_space);
 

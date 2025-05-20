@@ -1206,6 +1206,129 @@ static void uvm_chardev_exit(void)
     unregister_chrdev_region(g_uvm_base_dev, NVIDIA_UVM_NUM_MINOR_DEVICES);
 }
 
+#ifdef CGROUP_GPU_MEM
+
+size_t cgroup_mem_available = -1;
+bool cgroup_initialized = false;
+
+int cgroup_gpu_param1 = 1;
+//char *param2 = "default";
+
+module_param(cgroup_gpu_param1, int, 0644);
+MODULE_PARM_DESC(param1, "An integer param 0 = current algo 1 = new algo");
+
+void get_cgroup_mem_info(size_t *total_mem) {
+    uvm_gpu_id_t gpu_id;
+
+
+    if (cgroup_initialized == false) {
+	    *total_mem = -1;
+	    return;
+    }
+
+    *total_mem = 0;
+    pr_info("function: %s line: %d\n", __func__, __LINE__);
+    for_each_gpu_id(gpu_id) {
+       /* Get the total memory of the system and total used memory */
+        uvm_gpu_t *cg_gpu = uvm_gpu_get(gpu_id);
+	if (cg_gpu != NULL)
+            *total_mem += cg_gpu->mem_info.size;
+    }
+    pr_info("after get_cgroup_mem_info total-mem %lx\n", *total_mem);
+}
+
+/*
+// propotinate_hard_limit, current_gpu_mem_usage, total_stric, total proporiate, current total soft
+// Get hard limit, soft-limit, mode, eviction, weight,
+// Update total GPU memory usage
+static void update_global_gpu_mem_usage(unsigned long strict_mem, unsigned long proportionate_mem, unsigned long soft_mem)
+{
+    if (!entry)
+        return;
+
+    mutex_lock(&gpu_mem_usage_lock);
+    entry->used_memory += size;
+    mutex_unlock(&gpu_mem_usage_lock);
+}
+
+static struct task_struct *get_task_for_va_block(uvm_va_block_t *va_block)
+{
+    struct mm_struct *mm;
+    struct task_struct *task;
+
+    if (!va_block)
+        return NULL;
+
+    // Get the mm_struct associated with the virtual memory area
+    mm = va_block->va_range->mm;
+    if (!mm)
+        return NULL;
+
+    // Get the task from mm_struct (Assuming it's still running)
+    task = get_pid_task(mm->owner, PIDTYPE_PID);
+
+    return task;  // Caller should check for NULL
+}
+
+// Get used memory by process
+u64 get_gpu_mem_used(pid_t pid)
+{
+    struct gpu_mem_usage_entry *entry = get_gpu_mem_usage_entry(pid);
+    return entry ? entry->used_memory : 0;
+}
+
+u64 check_gpu_mem_within_limit(struct task_struct *task, u64 size)
+{
+    pid_t pid = task_pid_nr(current);
+
+    // Look up the current process's GPU memory usage from the RB-tree
+    u64 current_usage = get_gpu_mem_used(pid);
+
+    // Get the memory limit for this process
+    u64 limit = get_gpu_mem_cgroup_limit(current);
+
+    // If process exceeds its limit, deny allocation
+    if (current_usage + size <= limit) {
+        UVM_ERR_PRINT("GPU memory allocation denied: PID %d, %zu + %zu > %zu\n",
+                  pid, current_usage, size, limit);
+        return 0;
+    }
+
+    return (current_usage + size - limit);
+}
+
+u64 get_gpu_mem_cgroup_limit(struct task_struct *task)
+{
+    if (!task)
+        return DEFAULT_GPU_MEM_LIMIT;  // Set default if no cgroup found
+
+    return get_cgroup_gpu_limit(task);  // Fetch limit from cgroup
+}
+
+void uvm_gpu_mem_evict(struct task_struct *task, u64 new_limit)
+{
+    if (!task) return;
+
+    pid_t pid = task_pid_nr(task);
+    u64 mem_limit = get_gpu_mem_cgroup_limit(task);
+    u64 used_mem = get_gpu_mem_used(pid);
+
+    if (used_mem > mem_limit )
+        // Evict memory from UVM
+        uvm_va_block_evict_pages(ctx->va_space, used_mem - mem_limit);
+    }
+
+}
+*/
+
+#include <linux/cgroup_gpu_mem.h>
+int gpu_mem_cgroup_task_limit_change_notify(pid_t pid, GPUChangeCommand cmd, unsigned long new_val)
+{
+	pr_info("gpu mem cgroup task limit change callback pid: %d, cmd %d new val %ld\n", pid, cmd, new_val);
+	return 0;
+}
+#endif
+
 static int uvm_init(void)
 {
     bool initialized_globals = false;
@@ -1247,6 +1370,13 @@ static int uvm_init(void)
     if (uvm_hmm_is_enabled_system_wide())
         UVM_INFO_PRINT("HMM (Heterogeneous Memory Management) is enabled in the UVM driver.\n");
 
+#ifdef CGROUP_GPU_MEM
+    register_gpu_mem_cgroup_callback(gpu_mem_cgroup_task_limit_change_notify);
+    cgroup_initialized = true;
+
+    //get_cgroup_mem_info(&cgroup_mem_available);
+#endif
+
     return 0;
 
 error:
@@ -1274,6 +1404,10 @@ static void uvm_exit(void)
     uvm_global_exit();
 
     uvm_test_unload_state_exit();
+
+#ifdef CGROUP_GPU_MEM
+    register_gpu_mem_cgroup_callback(NULL);
+#endif
 
     pr_info("Unloaded the UVM driver.\n");
 }
