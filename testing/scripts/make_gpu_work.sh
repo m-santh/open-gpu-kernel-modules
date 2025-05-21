@@ -4,9 +4,16 @@ die() {
     echo -e "\e[1;31mERROR: $1\e[0m" >&2
     exit 1
 }
+
 usage(){
-  echo "./make_gpu_work.sh [-e | --exec] [-s | --soft_limit] [-d | --hard_limit]"
-  exit 1
+    echo "./make_gpu_work.sh [-e | --exec <executable>] [-s | --soft_limit <limit>] [-d | --hard_limit <limit>] [--] [arguments for executable...]"
+    echo ""
+    echo "  -e, --exec       : Path to the executable file."
+    echo "  -s, --soft_limit : Soft GPU memory limit."
+    echo "  -d, --hard_limit : Hard GPU memory limit."
+    echo "  --               : Separator for arguments to be passed to the executable."
+    echo "                     Any arguments after '--' will be passed directly to the executable."
+    exit 1
 }
 
 check_prereq() {
@@ -52,6 +59,8 @@ while true; do
   esac
 done
 
+EXEC_ARGS=("$@")
+
 if [ -z ${EXEC_FILE+x} ]; then
   die "No executable given";
 elif [ ! -f ${EXEC_FILE} ]; then
@@ -73,14 +82,16 @@ check_prereq
 
 PID=$$
 
-slice="/sys/fs/cgroup/${PID}.slice/"
-sudo mkdir "${slice}"
+slice="/sys/fs/cgroup/${PID}.slice"
+sudo sh -c "echo '+gpu_mem' > /sys/fs/cgroup/cgroup.subtree_control" 
+sudo mkdir -p "${slice}"
 sudo sh -c "echo ${PID} > ${slice}/cgroup.procs"
 sudo sh -c "echo ${SOFT_LIMIT} > ${slice}/gpu_mem.soft_limit"
 sudo sh -c "echo ${HARD_LIMIT} > ${slice}/gpu_mem.hard_limit"
 
 echo "Done ${slice}"
-echo "Launching `realpath ${EXEC_FILE}`"
-exec $EXEC_FILE
+EXEC_FILE=`realpath ${EXEC_FILE}`
+echo "Launching ${EXEC_FILE} ${EXEC_ARGS[@]} "
+exec "${EXEC_FILE}" "${EXEC_ARGS[@]}"
 
 
