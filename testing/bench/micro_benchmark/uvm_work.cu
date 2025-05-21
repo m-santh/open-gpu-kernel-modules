@@ -1,6 +1,8 @@
 #include <algorithm>
 #include <cerrno>
 #include <cuda_runtime.h>
+#include <curand.h>
+#include <curand_kernel.h>
 #include <iostream>
 #include <random>
 
@@ -25,17 +27,30 @@ __global__ void regular(char *p, ull size, ull iterations_per_block,
   }
 }
 
-__global__ void irregular(char *p, ull *offset_indices, ull size,
+/* __global__ void irregular(char *p, ull *offset_indices, ull size,
                           ull iterations_per_block, ull perThreadAccess) {
   ull tid = blockIdx.x * blockDim.x + threadIdx.x;
   // tid is the index in the randomOffset
   // size is the size of p
   // offset_indices has size of totalThreads * sizeof(ull)
   for (ull k = 0; k < iterations_per_block; ++k) {
-    ull current_off = (offset_indices[tid]*perThreadAccess) % size;
+    ull current_off = (offset_indices[tid] * perThreadAccess) % size;
     for (ull i = 0; i < perThreadAccess; ++i) {
       p[current_off] = 'I' + (char)((i * k) % 26);
-      current_off = (offset_indices[current_off]*perThreadAccess + i) % size;
+      current_off = (offset_indices[current_off] * perThreadAccess + i) % size;
+    }
+  }
+} */
+__global__ void irregular(char *p, curandState *rngState, ull size,
+                          ull iterations_per_block, ull perThreadAccess,
+                          ull seed) {
+  ull tid = blockIdx.x * blockDim.x + threadIdx.x;
+  curand_init(seed, tid, 0, &rngState[tid]);
+  for (int i = 0; i < iterations_per_block; ++i) {
+    for (int j = 0; j < perThreadAccess; ++j) {
+      double rand_val = curand_uniform_double(&rngState[tid]);
+      ull off = (ull)(rand_val * size) % size;
+      p[off] = 'I' + (char)((i * j) % 26);
     }
   }
 }
@@ -91,9 +106,9 @@ int main(int argc, char *argv[]) {
     cudaMallocManaged(&devPtr, size);
     regular<<<grid, block>>>(devPtr, size, iter, perThreadHandle);
   } else {
-    ull *randomNum;
-    ull randStateSize = totalThreads * sizeof(ull);
-    cudaMallocManaged(&randomNum, randStateSize);
+    curandState *rngStates;
+    ull randStateSize = totalThreads * sizeof(curandState);
+    cudaMallocManaged(&rngStates, randStateSize);
     ull to_alloc = size - randStateSize;
     cudaMallocManaged(&devPtr, to_alloc);
     ull perThreadHandle = cceil(to_alloc, totalThreads);
@@ -101,11 +116,8 @@ int main(int argc, char *argv[]) {
          << "\ntotalThreads: " << totalThreads
          << "\nperThread :" << perThreadHandle << "\nSize: " << to_alloc
          << "\n";
-    iota(randomNum, randomNum + totalThreads, 0ULL);
-    std::mt19937 g(seed);
-    shuffle(randomNum, randomNum + totalThreads, g);
-    irregular<<<grid, block>>>(devPtr, randomNum, to_alloc, iter,
-                               perThreadHandle);
+    irregular<<<grid, block>>>(devPtr, rngStates, to_alloc, iter,
+                               perThreadHandle, seed);
     size = to_alloc;
   }
 
