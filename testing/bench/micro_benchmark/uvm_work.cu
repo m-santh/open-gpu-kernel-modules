@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <cerrno>
 #include <cuda_runtime.h>
 #include <iostream>
@@ -24,25 +25,30 @@ __global__ void regular(char *p, ull size, ull iterations_per_block,
   }
 }
 
-__global__ void irregular(char *p, ull *offset_indices, ull size, ull iter) {
+__global__ void irregular(char *p, ull *offset_indices, ull size,
+                          ull iterations_per_block, ull perThreadAccess) {
   ull tid = blockIdx.x * blockDim.x + threadIdx.x;
-  ull current_off = tid % size;
-  while (iter--) {
-    p[current_off] = 'I';
-    current_off = offset_indices[current_off];
-    current_off %= size;
+  // tid is the index in the randomOffset
+  // size is the size of p
+  // offset_indices has size of totalThreads * sizeof(ull)
+  for (ull k = 0; k < iterations_per_block; ++k) {
+    ull current_off = (offset_indices[tid]*perThreadAccess) % size;
+    for (ull i = 0; i < perThreadAccess; ++i) {
+      p[current_off] = 'I' + (char)((i * k) % 26);
+      current_off = (offset_indices[current_off]*perThreadAccess + i) % size;
+    }
   }
 }
 
 void usage() {
-  cout << "usage: ./uvm_work [size] [r/i] [seed] [iter] | grid block \n";
+  cout << "usage: ./uvm_work [size] [r/i] [seed] [iter] <grid> <block> \n";
   cout << "size - TOTAL cudaMallocManaged size in GB\n";
   cout << "r/i - regular or irregular workload\n";
   cout << "seed - seed for random offset on irregular workload - ONLY ON "
           "IRREGULAR\n";
   cout << "iter - Number of iterations in a pattern\n";
-  cout << "| - Optional start after this \n";
-  cout << "grid block - used to launch the kernel. Default <4096,32>\n";
+  cout << "Optional start after this \n";
+  cout << "grid block - used to launch the kernel. Default <1024,32>\n";
 }
 
 int main(int argc, char *argv[]) {
@@ -67,10 +73,10 @@ int main(int argc, char *argv[]) {
   ull seed = 0;
   sscanf(argv[3], "%llu", &seed);
 
-  // ull iter = 0;
-  // sscanf(argv[4], "%llu", &iter);
+  ull iter = 0;
+  sscanf(argv[4], "%llu", &iter);
 
-  ull grid = 4096, block = 32;
+  ull grid = 1024, block = 32;
   if (argc > 5) {
     sscanf(argv[5], "%llu", &grid);
     sscanf(argv[6], "%llu", &block);
@@ -78,30 +84,28 @@ int main(int argc, char *argv[]) {
   ull totalThreads = grid * block;
 
   if (mode == 'r') {
-    ull perThreadHandle = cceil(size, grid * block);
+    ull perThreadHandle = cceil(size, totalThreads);
     cout << "\nGrid :" << grid << "\nBlock: " << block
          << "\ntotalThreads: " << totalThreads
          << "\nperThread :" << perThreadHandle << "\n";
     cudaMallocManaged(&devPtr, size);
-    regular<<<grid, block>>>(devPtr, size, perThreadHandle, perThreadHandle);
+    regular<<<grid, block>>>(devPtr, size, iter, perThreadHandle);
   } else {
     ull *randomNum;
     ull randStateSize = totalThreads * sizeof(ull);
     cudaMallocManaged(&randomNum, randStateSize);
     ull to_alloc = size - randStateSize;
     cudaMallocManaged(&devPtr, to_alloc);
-    ull perThreadHandle = cceil(to_alloc, grid * block);
+    ull perThreadHandle = cceil(to_alloc, totalThreads);
     cout << "\nGrid :" << grid << "\nBlock: " << block
          << "\ntotalThreads: " << totalThreads
          << "\nperThread :" << perThreadHandle << "\nSize: " << to_alloc
          << "\n";
-
-    std::mt19937_64 gen(seed);
-    std::uniform_int_distribution<ull> distrib(0, to_alloc - 1);
-    for (int i = 0; i < totalThreads; ++i) {
-      randomNum[i] = distrib(gen);
-    }
-    irregular<<<grid, block>>>(devPtr, randomNum, to_alloc, perThreadHandle);
+    iota(randomNum, randomNum + totalThreads, 0ULL);
+    std::mt19937 g(seed);
+    shuffle(randomNum, randomNum + totalThreads, g);
+    irregular<<<grid, block>>>(devPtr, randomNum, to_alloc, iter,
+                               perThreadHandle);
     size = to_alloc;
   }
 
