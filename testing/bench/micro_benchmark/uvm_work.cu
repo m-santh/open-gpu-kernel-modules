@@ -63,13 +63,13 @@ void usage() {
           "IRREGULAR\n";
   cout << "iter - Number of iterations in a pattern\n";
   cout << "Optional start after this \n";
-  cout << "grid block - used to launch the kernel. Default <1024,32>\n";
+  cout << "grid block - used to launch the kernel. Default <164,32>\n";
 }
 
 int main(int argc, char *argv[]) {
   char *devPtr;
 
-  if (argc != 5 && argc != 7) {
+  if (argc < 5 || argc > 7) {
     usage();
     return -EINVAL;
   }
@@ -94,6 +94,9 @@ int main(int argc, char *argv[]) {
   ull grid = 1024, block = 32;
   if (argc > 5) {
     sscanf(argv[5], "%llu", &grid);
+  }
+
+  if (argc > 6) {
     sscanf(argv[6], "%llu", &block);
   }
   ull totalThreads = grid * block;
