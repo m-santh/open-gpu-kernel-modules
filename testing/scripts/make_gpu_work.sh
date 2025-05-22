@@ -85,6 +85,7 @@ PID=$$
 slice="/sys/fs/cgroup/${PID}.slice"
 sudo sh -c "echo '+gpu_mem' > /sys/fs/cgroup/cgroup.subtree_control" 
 sudo mkdir -p "${slice}"
+sudo sh -c "echo 'strict' > ${slice}/gpu_mem.mode" 
 sudo sh -c "echo ${PID} > ${slice}/cgroup.procs"
 sudo sh -c "echo ${SOFT_LIMIT} > ${slice}/gpu_mem.soft_limit"
 sudo sh -c "echo ${HARD_LIMIT} > ${slice}/gpu_mem.hard_limit"
