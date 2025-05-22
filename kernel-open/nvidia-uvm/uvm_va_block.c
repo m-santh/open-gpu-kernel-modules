@@ -44,6 +44,8 @@
 #include "uvm_va_policy.h"
 #include "uvm_conf_computing.h"
 
+#include <linux/uvm_ctrl.h>
+
 typedef enum
 {
     BLOCK_PTE_OP_MAP,
@@ -2064,13 +2066,18 @@ static NV_STATUS block_alloc_gpu_chunk(uvm_va_block_t *block,
                                        uvm_gpu_chunk_t **out_gpu_chunk)
 {
     NV_STATUS status = NV_OK;
-    uvm_gpu_chunk_t *gpu_chunk;
+    uvm_gpu_chunk_t *gpu_chunk = NULL;
     uvm_va_space_t* va_space = uvm_va_block_get_va_space(block);
     gpu->pmm.calling_va_space=va_space;
     // First try getting a free chunk from previously-made allocations.
+    u64 soft_lim = 1ULL << 20;
+    u64 hard_lim = 1ULL << 30;
+    u64 size_before_alloc = va_space->size;
+    if(va_space->size < hard_lim) {
     gpu_chunk = block_retry_get_free_chunk(retry, gpu, size);
-    if(gpu_chunk) {
-        pr_info("Found on retry\n");
+        if(gpu_chunk) {
+            pr_info("Found on retry\n");
+        }
     }
     if (!gpu_chunk) {
         uvm_va_block_test_t *block_test = uvm_va_block_get_test(block);
@@ -2120,6 +2127,10 @@ static NV_STATUS block_alloc_gpu_chunk(uvm_va_block_t *block,
     }
     *out_gpu_chunk = gpu_chunk;
     va_space->size += uvm_gpu_chunk_get_size(gpu_chunk);
+    u64 size_after_alloc = va_space->size;
+    if(size_after_alloc >= soft_lim && size_before_alloc < soft_lim) {
+        // How do I identify which cgroup
+    }
     uvm_perf_event_notify_gpu_memory_update(&va_space->perf_events,
                                                gpu->id,
                                                size,

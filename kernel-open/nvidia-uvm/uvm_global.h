@@ -153,6 +153,8 @@ struct uvm_global_struct
         struct list_head list;
     } cgroups;
 
+    unsigned long missedFlags;
+
     // True if the VM has AMD's SEV, or equivalent HW security extensions such
     // as Intel's TDX, enabled. The flag is always false on the host.
     //

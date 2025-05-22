@@ -21,10 +21,12 @@
 
 *******************************************************************************/
 
+#include "linux/spinlock.h"
 #include "uvm_api.h"
 #include "uvm_ats.h"
 #include "uvm_global.h"
 #include "uvm_gpu_replayable_faults.h"
+#include "uvm_lock.h"
 #include "uvm_mem.h"
 #include "uvm_perf_events.h"
 #include "uvm_processors.h"
@@ -39,6 +41,8 @@
 #include "uvm_gpu_access_counters.h"
 #include "uvm_va_space_mm.h"
 #include "nv_uvm_interface.h"
+
+#include <linux/uvm_ctrl.h>
 
 uvm_global_t g_uvm_global;
 static struct UvmOpsUvmEvents g_exported_uvm_ops;
@@ -75,6 +79,47 @@ static void uvm_unregister_callbacks(void)
     }
 }
 
+static void uvm_ctrl_callback_handler(enum uvm_ctrl_callback_type type)
+{
+    switch(type)
+    {
+    case UVM_NEW_CSS:
+        pr_info("UVM_NEW_CSS\n");
+        break;
+    case UVM_CSS_GONE:
+        pr_info("UVM_CSS_GONE\n");
+        break;
+    case UVM_PROC_MOVED:
+        pr_info("UVM_PROC_MOVED\n");
+        break;
+    case UVM_SOFT_LIMIT_CHANGED:
+        pr_info("UVM_SOFT_LIMIT_CHANGED\n");
+        break;
+    case UVM_HARD_LIMIT_CHANGED:
+        pr_info("UVM_HARD_LIMIT_CHANGED\n");
+        break;
+      break;
+    case UVM_NEW_TASK:
+        pr_info("UVM_NEW_TASK\n");
+        break;
+    case UVM_EXIT_TASK:
+        pr_info("UVM_EXIT_TASK\n");
+      break;
+    }
+}
+
+static void get_missed_css(void) {
+    spin_lock_irqsave(&missed_cl_lock, g_uvm_global.missedFlags);
+    struct list_head *missedList = uvm_ctrl_get_missed_css_unlocked();
+    struct missed_creation *entry, *tmp;
+    list_for_each_entry_safe(entry, tmp, missedList, node){
+        pr_info("Got %u\n", entry->css->id);
+        list_del(&entry->node);
+    }
+    spin_unlock_irqrestore(&missed_cl_lock, g_uvm_global.missedFlags);
+
+}
+
 NV_STATUS uvm_global_init(void)
 {
     NV_STATUS status;
@@ -90,6 +135,14 @@ NV_STATUS uvm_global_init(void)
     uvm_spin_lock_irqsave_init(&g_uvm_global.gpu_table_lock, UVM_LOCK_ORDER_LEAF);
     uvm_mutex_init(&g_uvm_global.va_spaces.lock, UVM_LOCK_ORDER_VA_SPACES_LIST);
     INIT_LIST_HEAD(&g_uvm_global.va_spaces.list);
+
+    uvm_mutex_init(&g_uvm_global.cgroups.lock, UVM_LOCK_ORDER_CGROUP_LIST);
+    INIT_LIST_HEAD(&g_uvm_global.cgroups.list);
+
+    uvm_ctrl_register_callback(uvm_ctrl_callback_handler);
+    pr_info("Initalized the callback\n");
+
+    get_missed_css();
 
     status = uvm_kvmalloc_init();
     if (status != NV_OK) {
@@ -222,6 +275,10 @@ void uvm_global_exit(void)
 
     uvm_unregister_callbacks();
     uvm_service_block_context_exit();
+
+    if(spin_is_locked(&missed_cl_lock))
+        spin_unlock_irqrestore(&missed_cl_lock, g_uvm_global.missedFlags);
+    uvm_ctrl_unregister_callback();
 
     uvm_perf_heuristics_exit();
     uvm_perf_events_exit();
