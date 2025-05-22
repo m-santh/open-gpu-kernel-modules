@@ -147,6 +147,12 @@ struct uvm_global_struct
         struct page *page;
     } unload_state;
 
+    struct
+    {
+        uvm_mutex_t lock;
+        struct list_head list;
+    } cgroups;
+
     // True if the VM has AMD's SEV, or equivalent HW security extensions such
     // as Intel's TDX, enabled. The flag is always false on the host.
     //
@@ -157,6 +163,21 @@ struct uvm_global_struct
     // This field is set once during global initialization (uvm_global_init),
     // and can be read afterwards without acquiring any locks.
     bool conf_computing_enabled;
+};
+
+// Whenever a process is created it belongs to SOME cgroup
+// Each cgroup will evict based on eviction policy
+// Selecting the process inside the cgroup will be based on eviction policy
+// But selecting which cgroup will be selected is done randomly
+struct cgroup_facts{
+    struct
+    {
+        uvm_mutex_t lock;
+        struct list_head list;
+    } above_sof_limit;
+
+    struct list_head node;
+    uvm_mutex_t cgroup_lock;
 };
 
 // Initialize global uvm state
