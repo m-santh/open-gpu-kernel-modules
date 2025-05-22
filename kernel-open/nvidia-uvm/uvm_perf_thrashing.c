@@ -648,13 +648,13 @@ static block_thrashing_info_t *thrashing_info_get_create(uvm_va_block_t *va_bloc
 
     BUILD_BUG_ON((1 << 8 * sizeof(block_thrashing->num_thrashing_pages)) < PAGES_PER_UVM_VA_BLOCK);
     BUILD_BUG_ON((1 << 16) < UVM_ID_MAX_PROCESSORS);
-    pr_info("block thrashing 1\n");
+    // pr_info("block thrashing 1\n");
     if (!block_thrashing) {
-        pr_info("block thrashing 2\n");
+        // pr_info("block thrashing 2\n");
         block_thrashing = nv_kmem_cache_zalloc(g_va_block_thrashing_info_cache, NV_UVM_GFP_FLAGS);
         if (!block_thrashing)
             goto done;
-        pr_info("block thrashing 3\n");
+        // pr_info("block thrashing 3\n");
         block_thrashing->last_processor = UVM_ID_INVALID;
         INIT_LIST_HEAD(&block_thrashing->pinned_pages.list);
 
@@ -1245,7 +1245,7 @@ void thrashing_event_cb(uvm_perf_event_t event_id, uvm_perf_event_data_t *event_
     UVM_ASSERT(uvm_perf_thrashing_enable);
 
     UVM_ASSERT(event_id == UVM_PERF_EVENT_MIGRATION || event_id == UVM_PERF_EVENT_REVOCATION);
-    pr_info("hello, hi\n");
+    // pr_info("hello, hi\n");
     if (event_id == UVM_PERF_EVENT_MIGRATION) {
         va_block     = event_data->migration.block;
         address      = event_data->migration.address;
@@ -1255,7 +1255,7 @@ void thrashing_event_cb(uvm_perf_event_t event_id, uvm_perf_event_data_t *event_
         // Skip the thrashing detection logic on eviction as we cannot take
         // the VA space lock
        
-        pr_info("hello, hi, hi\n");
+        // pr_info("hello, hi, hi\n");
         if (event_data->migration.cause == UVM_MAKE_RESIDENT_CAUSE_EVICTION){
             
             //block_thrashing = thrashing_info_get_create(va_block);
@@ -1315,7 +1315,7 @@ void thrashing_event_cb(uvm_perf_event_t event_id, uvm_perf_event_data_t *event_
     }
 
     block_thrashing = thrashing_info_get_create(va_block);
-   pr_info("hui hui hui\n");
+   // pr_info("hui hui hui\n");
     if (!block_thrashing)
         return;
 
@@ -1328,10 +1328,10 @@ void thrashing_event_cb(uvm_perf_event_t event_id, uvm_perf_event_data_t *event_
         if (block_thrashing->last_time_stamp == 0 ||
             //uvm_id_equal(block_thrashing->last_processor, processor_id) ||
             time_stamp - block_thrashing->last_time_stamp > va_space_thrashing->params.lapse_ns){
-                pr_info("%llu,%llu\n",time_stamp - block_thrashing->last_time_stamp,va_space_thrashing->params.lapse_ns);
-                pr_info("hui hui hui :) :) 1,2,3,4\n");
+                // pr_info("%llu,%llu\n",time_stamp - block_thrashing->last_time_stamp,va_space_thrashing->params.lapse_ns);
+                // pr_info("hui hui hui :) :) 1,2,3,4\n");
             goto done;}
-pr_info("hui hui hui :) :)\n");
+// pr_info("hui hui hui :) :)\n");
         num_block_pages = uvm_va_block_size(va_block) / PAGE_SIZE;
 
         block_thrashing->pages = uvm_kvmalloc_zero(sizeof(*block_thrashing->pages) * num_block_pages);
@@ -1360,10 +1360,10 @@ pr_info("hui hui hui :) :)\n");
 
         uvm_processor_mask_set(&page_thrashing->processors, processor_id);
         page_thrashing_set_time_stamp(page_thrashing, time_stamp);
-        pr_info("hui hui hui 1212\n");
+        // pr_info("hui hui hui 1212\n");
         if (last_time_stamp == 0)
             continue;
-        pr_info("%llu\n",time_stamp - last_time_stamp);
+        // pr_info("%llu\n",time_stamp - last_time_stamp);
         if (time_stamp - last_time_stamp <= va_space_thrashing->params.lapse_ns) {
             
             UVM_PERF_SATURATING_INC(page_thrashing->num_thrashing_events);
