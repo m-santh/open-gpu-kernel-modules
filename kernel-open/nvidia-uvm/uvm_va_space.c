@@ -199,6 +199,10 @@ NV_STATUS uvm_va_space_create(struct address_space *mapping, uvm_va_space_t **va
     uvm_range_tree_init(&va_space->va_range_tree);
     uvm_ats_init_va_space(va_space);
 
+    INIT_LIST_HEAD(&va_space->va_block_used);
+    INIT_LIST_HEAD(&va_space->va_block_unused);
+    uvm_spin_lock_init(&va_space->list_lock, UVM_LOCK_ORDER_LEAF);
+
     // Init to 0 since we rely on atomic_inc_return behavior to return 1 as the
     // first ID.
     atomic64_set(&va_space->range_group_id_counter, 0);

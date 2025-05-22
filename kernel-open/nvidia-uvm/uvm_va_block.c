@@ -2069,6 +2069,9 @@ static NV_STATUS block_alloc_gpu_chunk(uvm_va_block_t *block,
     gpu->pmm.calling_va_space=va_space;
     // First try getting a free chunk from previously-made allocations.
     gpu_chunk = block_retry_get_free_chunk(retry, gpu, size);
+    if(gpu_chunk) {
+        pr_info("Found on retry\n");
+    }
     if (!gpu_chunk) {
         uvm_va_block_test_t *block_test = uvm_va_block_get_test(block);
         if (block_test && block_test->user_pages_allocation_retry_force_count > 0) {
@@ -2077,8 +2080,19 @@ static NV_STATUS block_alloc_gpu_chunk(uvm_va_block_t *block,
             status = NV_ERR_NO_MEMORY;
         }
         else {
-            // Try allocating a new one without eviction
-            status = uvm_pmm_gpu_alloc_user(&gpu->pmm, 1, size, UVM_PMM_ALLOC_FLAGS_NONE, &gpu_chunk, &retry->tracker);
+            // Try allocating a new one without eviction if below sof limit
+            if(va_space->size < 1ULL << 20) {
+                pr_info("Above soft_limit %llu\n", va_space->size);
+                status = uvm_pmm_gpu_alloc_user(&gpu->pmm, 1, size, UVM_PMM_ALLOC_FLAGS_NONE, &gpu_chunk, &retry->tracker);
+                pr_info("Done\n");
+                if(status == NV_OK ) {
+                    pr_info("Status OK");
+                    if(!gpu_chunk)
+                        pr_err("STATUS OK BUT CHUNK NULL!!\n");
+                }
+            } else {
+                status = NV_ERR_NO_MEMORY;
+            }
         }
 
         if (status == NV_ERR_NO_MEMORY) {
@@ -2086,8 +2100,8 @@ static NV_STATUS block_alloc_gpu_chunk(uvm_va_block_t *block,
             // return back to the caller immediately so that the operation can
             // be restarted.
             uvm_mutex_unlock(&block->lock);
-
-            status = uvm_pmm_gpu_alloc_user(&gpu->pmm, 1, size, UVM_PMM_ALLOC_FLAGS_EVICT, &gpu_chunk, &retry->tracker);
+            pr_info("Evict from self %llu\n", va_space->size);
+            status = uvm_pmm_gpu_alloc_user_va_space(&gpu->pmm, 1, size, UVM_PMM_ALLOC_FLAGS_EVICT, &gpu_chunk, &retry->tracker, va_space);
             if (status == NV_OK) {
                 block_retry_add_free_chunk(retry, gpu_chunk);
                 status = NV_ERR_MORE_PROCESSING_REQUIRED;
@@ -2101,12 +2115,17 @@ static NV_STATUS block_alloc_gpu_chunk(uvm_va_block_t *block,
         }
     }
 
+    if(!gpu_chunk) {
+        pr_err("GPU CHUNK EMTPY?\n");
+    }
     *out_gpu_chunk = gpu_chunk;
+    va_space->size += uvm_gpu_chunk_get_size(gpu_chunk);
     uvm_perf_event_notify_gpu_memory_update(&va_space->perf_events,
-                                                   gpu->id,
-                                                   size,
-                                                   true,
-                                                   block);
+                                               gpu->id,
+                                               size,
+                                               true,
+                                               block);
+
     return NV_OK;
 }
 
@@ -3546,6 +3565,11 @@ static void block_mark_memory_used(uvm_va_block_t *block, uvm_processor_id_t id)
         // The chunk has to be there if this GPU is resident
         UVM_ASSERT(uvm_processor_mask_test(&block->resident, id));
         uvm_pmm_gpu_mark_root_chunk_used(&gpu->pmm, uvm_va_block_gpu_state_get(block, gpu->id)->chunks[0]);
+        uvm_va_space_t *va_space = uvm_va_block_get_va_space_maybe_dead(block);
+        if(va_space) {
+            uvm_pmm_gpu_mark_root_chunk_used_va_space(&gpu->pmm, uvm_va_block_gpu_state_get(block, gpu->id)->chunks[0], va_space);
+        }
+
     }
 }
 
@@ -3580,8 +3604,14 @@ static void block_clear_resident_processor(uvm_va_block_t *block, uvm_processor_
         uvm_parent_gpu_supports_eviction(gpu->parent)) {
         // The chunk may not be there any more when residency is cleared.
         uvm_va_block_gpu_state_t *gpu_state = uvm_va_block_gpu_state_get(block, gpu->id);
-        if (gpu_state && gpu_state->chunks[0])
+        if (gpu_state && gpu_state->chunks[0]){
             uvm_pmm_gpu_mark_root_chunk_unused(&gpu->pmm, gpu_state->chunks[0]);
+            uvm_va_space_t *va_space = uvm_va_block_get_va_space_maybe_dead(block);
+            if(va_space) {
+                uvm_pmm_gpu_mark_root_chunk_unused_va_space(&gpu->pmm, gpu_state->chunks[0], va_space);
+            }
+
+        }
     }
 }
 

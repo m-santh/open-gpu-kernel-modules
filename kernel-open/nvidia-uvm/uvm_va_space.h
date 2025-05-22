@@ -431,6 +431,14 @@ struct uvm_va_space_struct
         bool allow_allocation_from_movable;
     } test;
 
+
+    struct list_head va_block_unused;
+    struct list_head va_block_used;
+    uvm_spinlock_t list_lock;
+
+    // size allocated
+    u64 size;
+
     // Queue item for deferred f_ops->release() handling
     nv_kthread_q_item_t deferred_release_q_item;
 };

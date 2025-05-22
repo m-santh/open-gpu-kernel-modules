@@ -449,6 +449,16 @@ NV_STATUS uvm_pmm_gpu_alloc_user(uvm_pmm_gpu_t *pmm,
                                  uvm_gpu_chunk_t **chunks,
                                  uvm_tracker_t *out_tracker);
 
+// va_space modification
+NV_STATUS uvm_pmm_gpu_alloc_user_va_space(uvm_pmm_gpu_t *pmm,
+                                 size_t num_chunks,
+                                 uvm_chunk_size_t chunk_size,
+                                 uvm_pmm_alloc_flags_t flags,
+                                 uvm_gpu_chunk_t **chunks,
+                                 uvm_tracker_t *out_tracker,
+                                 uvm_va_space_t *va_space);
+
+
 // Kernel memory allocator.
 //
 // See uvm_pmm_gpu_alloc_user documentation for details on the behavior of this
@@ -547,8 +557,14 @@ void uvm_pmm_gpu_mark_chunk_evicted(uvm_pmm_gpu_t *pmm, uvm_gpu_chunk_t *chunk);
 // Allow that state to make this API easy to use for the caller.
 void uvm_pmm_gpu_mark_root_chunk_used(uvm_pmm_gpu_t *pmm, uvm_gpu_chunk_t *chunk);
 
-// Mark an allocated user chunk as unused
+// mark an allocated user chunk as unused
 void uvm_pmm_gpu_mark_root_chunk_unused(uvm_pmm_gpu_t *pmm, uvm_gpu_chunk_t *chunk);
+
+
+void uvm_pmm_gpu_mark_root_chunk_used_va_space(uvm_pmm_gpu_t *pmm, uvm_gpu_chunk_t *chunk, uvm_va_space_t *va_space);
+
+// mark an allocated user chunk as unused
+void uvm_pmm_gpu_mark_root_chunk_unused_va_space(uvm_pmm_gpu_t *pmm, uvm_gpu_chunk_t *chunk, uvm_va_space_t *va_space);
 
 static bool uvm_gpu_chunk_same_root(uvm_gpu_chunk_t *chunk1, uvm_gpu_chunk_t *chunk2)
 {
