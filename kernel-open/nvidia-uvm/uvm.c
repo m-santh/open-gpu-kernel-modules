@@ -828,7 +828,7 @@ static struct vm_operations_struct uvm_vm_ops_device_p2p =
 };
 
 static int uvm_mmap(struct file *filp, struct vm_area_struct *vma)
-{   pr_info("vma-mmap,%llu,%llu\n",vma->vm_start,vma->vm_end);
+{ //  pr_info("vma-mmap,%llu,%llu\n",vma->vm_start,vma->vm_end);
     uvm_va_space_t *va_space;
     NV_STATUS status = uvm_global_get_status();
     int ret = 0;
@@ -1233,7 +1233,7 @@ static int uvm_init(void)
         goto error;
     }
 
-    pr_info("Loaded the UVM driver, major device number %d.\n", MAJOR(g_uvm_base_dev));
+    pr_info("Loaded the UVM driver, major device number %d. __UT_MOD_1\n", MAJOR(g_uvm_base_dev));
 
     if (uvm_enable_builtin_tests)
         pr_info("Built-in UVM tests are enabled. This is a security risk.\n");
