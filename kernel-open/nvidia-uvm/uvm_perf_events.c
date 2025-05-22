@@ -133,7 +133,7 @@ void uvm_perf_event_notify(uvm_perf_va_space_events_t *va_space_events, uvm_perf
     callback_list = &va_space_events->event_callbacks[event_id];
 
     uvm_down_read(&va_space_events->lock);
-    pr_info("migration happen 1.2.....\n");
+    // pr_info("migration happen 1.2.....\n");
     // Invoke all registered callbacks for the events
     list_for_each_entry(callback_desc, callback_list, callback_list_node) {
         
@@ -270,7 +270,7 @@ void uvm_perf_event_notify_migration(uvm_perf_va_space_events_t *va_space_events
                                                    uvm_va_block_transfer_mode_t transfer_mode,
                                                    uvm_make_resident_cause_t cause,
                                                    uvm_make_resident_context_t *make_resident_context)
-{   pr_info("migration happen.....\n");
+{ //  pr_info("migration happen.....\n");
    
     uvm_perf_event_data_t event_data =
         {
@@ -339,7 +339,7 @@ void uvm_perf_event_notify_gpu_fault(uvm_perf_va_space_events_t *va_space_events
     event_data.fault.gpu.batch_id     = batch_id;
     event_data.fault.gpu.is_duplicate = is_duplicate;
 
-    pr_info("fault type: %d\n",buffer_entry->is_replayable);
+    // pr_info("fault type: %d\n",buffer_entry->is_replayable);
         uvm_assert_rwsem_locked_write(&va_space_events->va_space->lock);
          va_space_events->va_space->permanent_counters[gpu_id.val][UvmCounterNameGpuPageFaultCount]++;
 
@@ -365,7 +365,7 @@ void uvm_perf_event_notify_gpu_residency_update(uvm_perf_va_space_events_t *va_s
                 },
         };
 
-    pr_info("residancy update......: %d\n",page_count);
+    // pr_info("residancy update......: %d\n",page_count);
          uvm_assert_rwsem_locked_write(&va_space_events->va_space->lock);
         if(UVM_ID_IS_CPU(dest_id))
          va_space_events->va_space->permanent_counters[dest_id.val][UvmCounterNameCPUResident]+=page_count;
@@ -394,7 +394,7 @@ void uvm_perf_event_notify_gpu_memory_update(uvm_perf_va_space_events_t *va_spac
                 },
         };
 
-    pr_info("chunk update......: %lu\n",chunk_size);
+    // pr_info("chunk update......: %lu\n",chunk_size);
          uvm_assert_rwsem_locked_write(&va_space_events->va_space->lock);
          if(is_added)
          va_space_events->va_space->permanent_counters[dest_id.val][UvmCounterNameGpuMemory]+=chunk_size;
@@ -421,7 +421,7 @@ void uvm_perf_event_notify_other_process_evicted(uvm_perf_va_space_events_t *va_
                 },
         };
 
-    pr_info("chunk update......: %lu\n",chunk_size);
+    // pr_info("chunk update......: %lu\n",chunk_size);
          uvm_assert_rwsem_locked_write(&va_space_events->va_space->lock);
          va_space_events->va_space->permanent_counters[dest_id.val][UvmCounterNameOtherProcess]+=chunk_size;
 

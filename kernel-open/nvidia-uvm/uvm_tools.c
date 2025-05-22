@@ -892,7 +892,7 @@ static void record_cpu_fault(UvmEventCpuFaultInfo *info, uvm_perf_event_data_t *
 }
 
 static void uvm_tools_record_fault(uvm_perf_event_t event_id, uvm_perf_event_data_t *event_data)
-{   pr_info("got called.................\n");
+{ //  pr_info("got called.................\n");
     uvm_va_space_t *va_space = event_data->fault.space;
 
     UVM_ASSERT(event_id == UVM_PERF_EVENT_FAULT);
@@ -1241,7 +1241,7 @@ static void uvm_tools_record_migration_cpu_to_cpu(uvm_va_space_t *va_space,
 // For CPU-to-CPU copies using memcpy, this event is notified when all of the
 // page copies does by block_copy_resident_pages have finished.
 static void uvm_tools_record_migration(uvm_perf_event_t event_id, uvm_perf_event_data_t *event_data)
-{   pr_info("got called.................12\n");
+{ //  pr_info("got called.................12\n");
     uvm_va_block_t *va_block = event_data->migration.block;
     uvm_va_space_t *va_space = uvm_va_block_get_va_space(va_block);
 
@@ -2391,7 +2391,7 @@ static NV_STATUS tools_update_perf_events_callbacks(uvm_va_space_t *va_space)
 
     if (tools_is_fault_callback_needed(va_space)) {
         if (!uvm_perf_is_event_callback_registered(&va_space->perf_events, UVM_PERF_EVENT_FAULT, uvm_tools_record_fault)) {
-            pr_info("fault call; back added..................\n");
+            // pr_info("fault call; back added..................\n");
             status = uvm_perf_register_event_callback_locked(&va_space->perf_events,
                                                              UVM_PERF_EVENT_FAULT,
                                                              uvm_tools_record_fault);
@@ -2410,7 +2410,7 @@ static NV_STATUS tools_update_perf_events_callbacks(uvm_va_space_t *va_space)
 
     if (tools_is_migration_callback_needed(va_space)) {
         if (!uvm_perf_is_event_callback_registered(&va_space->perf_events, UVM_PERF_EVENT_MIGRATION, uvm_tools_record_migration)) {
-           pr_info("migration added..................\n");
+           // pr_info("migration added..................\n");
             status = uvm_perf_register_event_callback_locked(&va_space->perf_events,
                                                              UVM_PERF_EVENT_MIGRATION,
                                                              uvm_tools_record_migration);
@@ -2430,7 +2430,7 @@ static NV_STATUS tools_update_perf_events_callbacks(uvm_va_space_t *va_space)
 
     if (tools_is_residency_callback_needed(va_space)) {
         if (!uvm_perf_is_event_callback_registered(&va_space->perf_events, UVM_PREF_EVENT_UPDATE_RESIDENCY, uvm_tools_record_residency_unpdate)) {
-           pr_info("residency call back added..................\n");
+           // pr_info("residency call back added..................\n");
             status = uvm_perf_register_event_callback_locked(&va_space->perf_events,
                                                              UVM_PREF_EVENT_UPDATE_RESIDENCY,
                                                              uvm_tools_record_residency_unpdate);
@@ -2450,7 +2450,7 @@ static NV_STATUS tools_update_perf_events_callbacks(uvm_va_space_t *va_space)
 
     if (tools_is_memory_callback_needed(va_space)) {
         if (!uvm_perf_is_event_callback_registered(&va_space->perf_events, UVM_PREF_EVENT_GPU_MEMORY_ALLOCATION_CHANGED, uvm_tools_record_memory_unpdate)) {
-           pr_info("memory call back added..................\n");
+           // pr_info("memory call back added..................\n");
             status = uvm_perf_register_event_callback_locked(&va_space->perf_events,
                                                              UVM_PREF_EVENT_GPU_MEMORY_ALLOCATION_CHANGED,
                                                              uvm_tools_record_memory_unpdate);
@@ -2470,7 +2470,7 @@ static NV_STATUS tools_update_perf_events_callbacks(uvm_va_space_t *va_space)
 
     if (tools_is_other_process_eviction_callback_needed(va_space)) {
         if (!uvm_perf_is_event_callback_registered(&va_space->perf_events, UVM_PREF_GPU_MEMEORY_OTHER_PROCESS_MEMORY_EVICTED, uvm_tools_record_ope_unpdate)) {
-           pr_info("memory call back added..................\n");
+           // pr_info("memory call back added..................\n");
             status = uvm_perf_register_event_callback_locked(&va_space->perf_events,
                                                              UVM_PREF_GPU_MEMEORY_OTHER_PROCESS_MEMORY_EVICTED,
                                                              uvm_tools_record_ope_unpdate);
@@ -2639,7 +2639,7 @@ NV_STATUS uvm_api_tools_enable_counters(UVM_TOOLS_ENABLE_COUNTERS_PARAMS *params
     uvm_tools_event_tracker_t *event_tracker = tools_event_tracker(filp);
     NV_STATUS status = NV_OK;
     NvU64 inserted_lists;
-    pr_info("ioctl to enable counters..................\n");
+    // pr_info("ioctl to enable counters..................\n");
     if (!tracker_is_counter(event_tracker))
         return NV_ERR_INVALID_ARGUMENT;
 
@@ -2648,7 +2648,7 @@ NV_STATUS uvm_api_tools_enable_counters(UVM_TOOLS_ENABLE_COUNTERS_PARAMS *params
     }
 
     va_space = tools_event_tracker_va_space(event_tracker);
-    pr_info("va space for event tracker found..................\n");
+    // pr_info("va space for event tracker found..................\n");
     uvm_down_write(&g_tools_va_space_list_lock);
     uvm_down_write(&va_space->perf_events.lock);
     uvm_down_write(&va_space->tools.lock);
@@ -2662,7 +2662,7 @@ NV_STATUS uvm_api_tools_enable_counters(UVM_TOOLS_ENABLE_COUNTERS_PARAMS *params
 
     // perform any necessary registration
     status = tools_update_status(va_space);
-    pr_info("tool update status.................%d\n",status);
+    // pr_info("tool update status.................%d\n",status);
     if (status != NV_OK) {
         remove_event_tracker(va_space,
                              event_tracker->counter.counter_nodes,
@@ -2719,7 +2719,7 @@ NV_STATUS uvm_api_tools_get_uvm_pids(UVM_TOOLS_GET_UVM_PIDS_PARAMS *params, stru
             /*if(va_space==filp->private_data){
                 continue;
             }*/
-            pr_info("inside loop\n");
+            // pr_info("inside loop\n");
             uvm_va_space_down_read(va_space);
             mm = uvm_va_space_mm_retain(va_space);
             //pr_info("%llu\n",mm->owner);
@@ -2738,8 +2738,8 @@ NV_STATUS uvm_api_tools_get_uvm_pids(UVM_TOOLS_GET_UVM_PIDS_PARAMS *params, stru
             if(mm && mm->owner->pid){
             
             *(pids+count)=mm->owner->pid;
-            pr_info("id assigned, %d\n",*(pids+count));
-            pr_info("id assigned actual, %d\n",mm->owner->pid);
+            // pr_info("id assigned, %d\n",*(pids+count));
+            // pr_info("id assigned actual, %d\n",mm->owner->pid);
 
             count++;
             
@@ -2757,9 +2757,9 @@ NV_STATUS uvm_api_tools_get_uvm_pids(UVM_TOOLS_GET_UVM_PIDS_PARAMS *params, stru
     }
     uvm_mutex_unlock(&g_uvm_global.va_spaces.lock);
     //uvm_down_read(&va_space->lock);
-   pr_info("ending loop, begning copy..\n");
+   // pr_info("ending loop, begning copy..\n");
     NV_COPY_TO_USER(params->tablePtr,(NvU64)(pids),45*sizeof(unsigned int));
-    pr_info("ending loop, ending copy..\n");
+    // pr_info("ending loop, ending copy..\n");
 
     //uvm_up_read(&va_space->lock);
 
@@ -3100,13 +3100,13 @@ NV_STATUS uvm_api_tools_get_gpus_uuid(UVM_TOOLS_GET_GPUs_UUID_PARAMS *params, st
 
      struct file* uvm_file = fget(params->uvmFd);
     if (uvm_file == NULL) {
-        pr_info("check.....\n");
+        // pr_info("check.....\n");
         status = NV_ERR_INSUFFICIENT_PERMISSIONS;
         return status;
     }
 
     if (!uvm_file_is_nvidia_uvm(uvm_file)) {
-        pr_info("check.....123\n");
+        // pr_info("check.....123\n");
         fput(uvm_file);
         uvm_file = NULL;
         status = NV_ERR_INSUFFICIENT_PERMISSIONS;

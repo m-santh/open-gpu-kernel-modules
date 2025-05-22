@@ -367,7 +367,7 @@ static NV_STATUS service_managed_fault_in_block_locked(uvm_va_block_t *va_block,
     UVM_ASSERT(fault_entry->fault_address <= va_block->end);
 
     policy = uvm_va_policy_get(va_block, fault_entry->fault_address);
-    pr_info("........non-replayable fault..... flow\n");
+    // pr_info("........non-replayable fault..... flow\n");
     if (service_context->num_retries == 0) {
         // notify event to tools/performance heuristics. For now we use a
         // unique batch id per fault, since we clear the faulted channel for
