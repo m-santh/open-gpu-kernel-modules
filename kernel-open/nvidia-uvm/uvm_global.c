@@ -21,7 +21,6 @@
 
 *******************************************************************************/
 
-#include "linux/spinlock.h"
 #include "uvm_api.h"
 #include "uvm_ats.h"
 #include "uvm_global.h"
@@ -43,6 +42,9 @@
 #include "nv_uvm_interface.h"
 
 #include <linux/uvm_ctrl.h>
+#include <linux/cgroup-defs.h>
+#include <linux/list.h>
+#include <linux/spinlock.h>
 
 uvm_global_t g_uvm_global;
 static struct UvmOpsUvmEvents g_exported_uvm_ops;
@@ -79,15 +81,55 @@ static void uvm_unregister_callbacks(void)
     }
 }
 
-static void uvm_ctrl_callback_handler(enum uvm_ctrl_callback_type type)
+static void uvm_ctrl_new_css(struct cgroup_subsys_state *css)
 {
+    // Hopefully I don't overwrite with missed cgroups but check anyway
+    struct cgroup_facts *entry, *tmp;
+    list_for_each_entry_safe(entry, tmp, &g_uvm_global.cgroups.list, node) {
+        if(entry->id == css->id) {
+            pr_warn("DUPLICATE CSS for id %u", css->id);
+            return;
+        }
+    }
+    struct cgroup_facts *cgf = kzalloc(sizeof(struct cgroup_facts), GFP_KERNEL);
+    // If you want css, call css_from_id
+    cgf->id = css->id;
+    pr_info("New css wit id %u", cgf->id);
+    INIT_LIST_HEAD(&cgf->above_sof_limit.list);
+    uvm_mutex_init(&cgf->cgroup_lock, UVM_LOCK_ORDER_ABOVE_SOFT_LIST);
+    uvm_mutex_init(&cgf->above_sof_limit.lock, UVM_LOCK_ORDER_CGROUP_LIST);
+    uvm_mutex_lock(&g_uvm_global.cgroups.lock);
+    list_add_tail(&cgf->node, &g_uvm_global.cgroups.list);
+    uvm_mutex_unlock(&g_uvm_global.cgroups.lock);
+}
+
+static void uvm_ctrl_delete_css(struct cgroup_subsys_state *css){
+    struct cgroup_facts *entry, *tmp;
+    uvm_mutex_lock(&g_uvm_global.cgroups.lock);
+    list_for_each_entry_safe(entry, tmp, &g_uvm_global.cgroups.list, node) {
+        if(entry->id == css->id) {
+            list_del(&entry->node);
+            kfree(entry);
+            break;
+        }
+    }
+    uvm_mutex_unlock(&g_uvm_global.cgroups.lock);
+}
+
+static void uvm_ctrl_callback_handler(struct uvm_ctrl_callback_info callback_info)
+{
+    enum uvm_ctrl_callback_type type = callback_info.type;
     switch(type)
     {
     case UVM_NEW_CSS:
         pr_info("UVM_NEW_CSS\n");
+        uvm_ctrl_new_css(callback_info.css);
+        pr_info("UVM_NEW_CSS_GONE\n");
         break;
     case UVM_CSS_GONE:
         pr_info("UVM_CSS_GONE\n");
+        uvm_ctrl_delete_css(callback_info.css);
+        pr_info("UVM_CSS_GONE_GONE\n");
         break;
     case UVM_PROC_MOVED:
         pr_info("UVM_PROC_MOVED\n");
@@ -114,7 +156,9 @@ static void get_missed_css(void) {
     struct missed_creation *entry, *tmp;
     list_for_each_entry_safe(entry, tmp, missedList, node){
         pr_info("Got %u\n", entry->css->id);
+        uvm_ctrl_new_css(entry->css);
         list_del(&entry->node);
+        kfree(entry);
     }
     spin_unlock_irqrestore(&missed_cl_lock, g_uvm_global.missedFlags);
 
@@ -142,7 +186,9 @@ NV_STATUS uvm_global_init(void)
     uvm_ctrl_register_callback(uvm_ctrl_callback_handler);
     pr_info("Initalized the callback\n");
 
+    // BUG: The root css was working, ab kyu nahi aa raha bhai
     get_missed_css();
+    pr_info("Done with missed css\n");
 
     status = uvm_kvmalloc_init();
     if (status != NV_OK) {

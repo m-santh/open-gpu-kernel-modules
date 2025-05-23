@@ -42,6 +42,7 @@
 #include "nv_uvm_interface.h"
 #include "nv-kthread-q.h"
 #include <linux/mmzone.h>
+#include <linux/uvm_ctrl.h>
 
 static bool processor_mask_array_test(const uvm_processor_mask_t *mask,
                                       uvm_processor_id_t mask_id,
@@ -202,6 +203,7 @@ NV_STATUS uvm_va_space_create(struct address_space *mapping, uvm_va_space_t **va
     INIT_LIST_HEAD(&va_space->va_block_used);
     INIT_LIST_HEAD(&va_space->va_block_unused);
     uvm_spin_lock_init(&va_space->list_lock, UVM_LOCK_ORDER_LEAF);
+    va_space->is_above_sof_lim_list = false;
 
     // Init to 0 since we rely on atomic_inc_return behavior to return 1 as the
     // first ID.
@@ -456,6 +458,24 @@ void uvm_va_space_detach_all_user_channels(uvm_va_space_t *va_space, struct list
         uvm_gpu_va_space_detach_all_user_channels(gpu_va_space, deferred_free_list);
 }
 
+
+static struct task_struct *get_tsk_struct_from_va_space(uvm_va_space_t *va_space){
+    struct task_struct *tsk = NULL;
+    struct mm_struct *mm = uvm_va_space_mm_retain(va_space);
+    if(!mm){
+        uvm_va_space_mm_release(va_space);
+    }else{
+        if(!mm->owner){
+            uvm_va_space_mm_release(va_space);
+        }else{
+            tsk = mm->owner;
+            get_task_struct(tsk);
+            uvm_va_space_mm_release(va_space);
+        }
+    }
+    return tsk;
+}
+
 void uvm_va_space_destroy(uvm_va_space_t *va_space)
 {
     uvm_va_range_t *va_range, *va_range_next;
@@ -469,6 +489,24 @@ void uvm_va_space_destroy(uvm_va_space_t *va_space)
     uvm_mutex_lock(&g_uvm_global.va_spaces.lock);
     list_del(&va_space->list_node);
     uvm_mutex_unlock(&g_uvm_global.va_spaces.lock);
+
+    struct task_struct *tsk = get_tsk_struct_from_va_space(va_space); 
+    struct cgroup_facts *entry, *tmp;
+    if(tsk){
+        int get_subsys_id = uvm_ctrl_get_subsys_id();
+        struct cgroup_subsys_state *css = task_get_css(tsk,get_subsys_id);
+        put_task_struct(tsk);
+        list_for_each_entry_safe(entry, tmp, &g_uvm_global.cgroups.list, node){
+            if(entry->id == css->id) {
+                uvm_mutex_lock(&entry->above_sof_limit.lock);
+                if(va_space->is_above_sof_lim_list){
+                    list_del(&va_space->list_node_for_cgp);
+                }
+                uvm_mutex_unlock(&entry->above_sof_limit.lock);
+            }
+        }
+        css_put(css);
+    }
 
     uvm_perf_heuristics_stop(va_space);
 

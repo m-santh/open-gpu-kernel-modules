@@ -176,6 +176,8 @@
 #include "uvm_test.h"
 #include "uvm_linux.h"
 
+#include <linux/uvm_ctrl.h>
+
 static int uvm_global_oversubscription = 1;
 module_param(uvm_global_oversubscription, int, S_IRUGO);
 MODULE_PARM_DESC(uvm_global_oversubscription, "Enable (1) or disable (0) global oversubscription support.");
@@ -1744,6 +1746,24 @@ static NV_STATUS pick_and_evict_root_chunk(uvm_pmm_gpu_t *pmm,
     return NV_OK;
 }
 
+
+static struct task_struct *get_tsk_struct_from_va_space(uvm_va_space_t *va_space){
+    struct task_struct *tsk = NULL;
+    struct mm_struct *mm = uvm_va_space_mm_retain(va_space);
+    if(!mm){
+        uvm_va_space_mm_release(va_space);
+    }else{
+        if(!mm->owner){
+            uvm_va_space_mm_release(va_space);
+        }else{
+            tsk = mm->owner;
+            get_task_struct(tsk);
+            uvm_va_space_mm_release(va_space);
+        }
+    }
+    return tsk;
+}
+
 static NV_STATUS pick_and_evict_root_chunk_va_space(uvm_pmm_gpu_t *pmm,
                                            uvm_pmm_gpu_memory_type_t type,
                                            uvm_pmm_context_t pmm_context,
@@ -1767,7 +1787,31 @@ static NV_STATUS pick_and_evict_root_chunk_va_space(uvm_pmm_gpu_t *pmm,
     if (status != NV_OK)
         return status;
     // As it was a root chunk
+    struct task_struct *tsk = get_tsk_struct_from_va_space(va_space); 
+    u64 before_dealloc_size = va_space->size;
     va_space->size -= UVM_CHUNK_SIZE_MAX;
+    u64 after_dealloc_size = va_space->size;
+    struct cgroup_facts *entry, *tmp;
+    if(tsk){
+        int get_subsys_id = uvm_ctrl_get_subsys_id();
+        struct cgroup_subsys_state *css = task_get_css(tsk, get_subsys_id);
+        struct uvm_ctrl_css *uvm_css = css_to_uvm_css(css);
+        u64 soft_lim = uvm_ctrl_get_limit(UVM_SOFT_LIMIT, uvm_css);
+        put_task_struct(tsk);
+        if(before_dealloc_size >= soft_lim && after_dealloc_size < soft_lim) {
+            list_for_each_entry_safe(entry, tmp, &g_uvm_global.cgroups.list, node){
+                if(entry->id == css->id) {
+                    uvm_mutex_lock(&entry->above_sof_limit.lock);
+                    if(va_space->is_above_sof_lim_list){
+                        list_del_init(&va_space->list_node_for_cgp);
+                        va_space->is_above_sof_lim_list = false;
+                    }
+                    uvm_mutex_unlock(&entry->above_sof_limit.lock);
+                }
+            }
+        }
+        css_put(css);
+    }
 
     chunk = &root_chunk->chunk;
 

@@ -91,7 +91,7 @@ int main(int argc, char *argv[]) {
   ull iter = 0;
   sscanf(argv[4], "%llu", &iter);
 
-  ull grid = 1024, block = 32;
+  ull grid = 164, block = 32;
   if (argc > 5) {
     sscanf(argv[5], "%llu", &grid);
   }

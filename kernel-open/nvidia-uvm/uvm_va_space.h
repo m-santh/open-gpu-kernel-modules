@@ -436,6 +436,9 @@ struct uvm_va_space_struct
     struct list_head va_block_used;
     uvm_spinlock_t list_lock;
 
+    struct list_head list_node_for_cgp;
+    bool is_above_sof_lim_list;
+
     // size allocated
     u64 size;
 

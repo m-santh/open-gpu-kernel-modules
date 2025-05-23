@@ -1,4 +1,4 @@
-#! /bin/env bash
+#! /bin/bash -x
 
 die() {
     echo -e "\e[1;31mERROR: $1\e[0m" >&2
@@ -6,11 +6,12 @@ die() {
 }
 
 usage(){
-    echo "./make_gpu_work.sh [-e | --exec <executable>] [-s | --soft_limit <limit>] [-d | --hard_limit <limit>] [--] [arguments for executable...]"
+    echo "./make_gpu_work.sh [-e | --exec <executable>]  [-s | --soft_limit <limit>] [-d | --hard_limit <limit>] <-n | --name> [--] [arguments for executable...]"
     echo ""
     echo "  -e, --exec       : Path to the executable file."
     echo "  -s, --soft_limit : Soft GPU memory limit."
     echo "  -d, --hard_limit : Hard GPU memory limit."
+    echo "  -n, --name       : Slice name"
     echo "  --               : Separator for arguments to be passed to the executable."
     echo "                     Any arguments after '--' will be passed directly to the executable."
     exit 1
@@ -21,8 +22,8 @@ check_prereq() {
 }
 
 
-OTPS="e:s:d:h"
-LONGOPTS="exec:,soft_limit:,hard_limit:,help" 
+OTPS="e:s:d:n:h"
+LONGOPTS="exec:,soft_limit:,hard_limit:,name:,help" 
 OPTIONS=$(getopt -o "$OTPS" --long "$LONGOPTS" -- "$@")
 
 [ "$?" -ne "0" ] && usage >&2 && exit 1
@@ -41,6 +42,10 @@ while true; do
       ;;
     -d | --hard_limit)
       HARD_LIMIT="$2"
+      shift 2
+      ;;
+    -n | --name)
+      SLICE_NAME="$2"
       shift 2
       ;;
     -h | --help)
@@ -71,24 +76,30 @@ if [ -z ${SOFT_LIMIT+x} ]; then
   die "No soft limit given";
 fi
 if [ -z ${HARD_LIMIT+x} ]; then
+  die "No slice name given";
+  SLICE_NAME=$$
+fi
+
+if [ -z ${SLICE_NAME+x} ]; then
   die "No hard limit given";
 fi
+
+PID=$$
 
 echo "EXEC_FILE: $EXEC_FILE"
 echo "SOFT_LIMIT: $SOFT_LIMIT"
 echo "HARD_LIMIT: $HARD_LIMIT"
+echo "SLICE_NAME: ${SLICE_NAME}"
 
 check_prereq
 
-PID=$$
-
-slice="/sys/fs/cgroup/${PID}.slice"
-sudo sh -c "echo '+gpu_mem' > /sys/fs/cgroup/cgroup.subtree_control" 
+slice="/sys/fs/cgroup/${SLICE_NAME}.slice"
+sudo sh -c "echo '+uvm_ctrl' > /sys/fs/cgroup/cgroup.subtree_control" 
 sudo mkdir -p "${slice}"
-sudo sh -c "echo 'strict' > ${slice}/gpu_mem.mode" 
+# sudo sh -c "echo 'strict' > ${slice}/gpu_mem.mode" 
 sudo sh -c "echo ${PID} > ${slice}/cgroup.procs"
-sudo sh -c "echo ${SOFT_LIMIT} > ${slice}/gpu_mem.soft_limit"
-sudo sh -c "echo ${HARD_LIMIT} > ${slice}/gpu_mem.hard_limit"
+sudo sh -c "echo ${SOFT_LIMIT} > ${slice}/uvm_ctrl.soft"
+sudo sh -c "echo ${HARD_LIMIT} > ${slice}/uvm_ctrl.hard"
 
 echo "Done ${slice}"
 EXEC_FILE=`realpath ${EXEC_FILE}`

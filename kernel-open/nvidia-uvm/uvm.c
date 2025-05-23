@@ -1233,7 +1233,7 @@ static int uvm_init(void)
         goto error;
     }
 
-    pr_info("Loaded the UVM driver, major device number %d. __UT_MOD_6\n", MAJOR(g_uvm_base_dev));
+    pr_info("Loaded the UVM driver, major device number %d. __UT_MOD_8\n", MAJOR(g_uvm_base_dev));
 
     if (uvm_enable_builtin_tests)
         pr_info("Built-in UVM tests are enabled. This is a security risk.\n");
