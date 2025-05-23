@@ -159,6 +159,7 @@ else
  ccflags-y += -Wno-error
 endif
 
+ccflags-y += -DBUILD_TIMESTAMP=\"$(shell date -u +%Y-%m-%dT%H:%M:%SZ)\"
 #
 # The conftest.sh script tests various aspects of the target kernel.
 # The per-module Kbuild files included above should:

@@ -1210,6 +1210,7 @@ static int uvm_init(void)
 {
     bool initialized_globals = false;
     bool added_device = false;
+   
     int ret;
 
     NV_STATUS status = uvm_global_init();
@@ -1233,7 +1234,7 @@ static int uvm_init(void)
         goto error;
     }
 
-    pr_info("Loaded the UVM driver, major device number %d.\n", MAJOR(g_uvm_base_dev));
+    pr_info("Loaded the UVM driver, major device number %d. built @ %s \n", MAJOR(g_uvm_base_dev), BUILD_TIMESTAMP);
 
     if (uvm_enable_builtin_tests)
         pr_info("Built-in UVM tests are enabled. This is a security risk.\n");
