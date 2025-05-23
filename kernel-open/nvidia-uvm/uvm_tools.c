@@ -892,7 +892,7 @@ static void record_cpu_fault(UvmEventCpuFaultInfo *info, uvm_perf_event_data_t *
 }
 
 static void uvm_tools_record_fault(uvm_perf_event_t event_id, uvm_perf_event_data_t *event_data)
-{   pr_info("got called.................\n");
+{   //pr_info("got called.................\n");
     uvm_va_space_t *va_space = event_data->fault.space;
 
     UVM_ASSERT(event_id == UVM_PERF_EVENT_FAULT);
@@ -1241,7 +1241,7 @@ static void uvm_tools_record_migration_cpu_to_cpu(uvm_va_space_t *va_space,
 // For CPU-to-CPU copies using memcpy, this event is notified when all of the
 // page copies does by block_copy_resident_pages have finished.
 static void uvm_tools_record_migration(uvm_perf_event_t event_id, uvm_perf_event_data_t *event_data)
-{   pr_info("got called.................12\n");
+{   //pr_info("got called.................12\n");
     uvm_va_block_t *va_block = event_data->migration.block;
     uvm_va_space_t *va_space = uvm_va_block_get_va_space(va_block);
 
