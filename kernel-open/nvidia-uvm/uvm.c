@@ -21,7 +21,9 @@
 
 *******************************************************************************/
 
+#include "linux/uvm_ctrl.h"
 #include "uvm_api.h"
+#include "uvm_extern_decl.h"
 #include "uvm_global.h"
 #include "uvm_gpu_replayable_faults.h"
 #include "uvm_tools_init.h"
@@ -172,6 +174,21 @@ static NV_STATUS uvm_api_mm_initialize(UVM_MM_INITIALIZE_PARAMS *params, struct 
             UVM_ASSERT(0);
             break;
     }
+
+    struct task_struct *tsk = mm->owner;
+    if(tsk == NULL)
+        pr_err("tsk struct is null\n");
+    struct cgroup_subsys_state *css = task_get_css(tsk,uvm_ctrl_get_subsys_id());
+    va_space->css_id = css->id;
+    va_space->pid = tsk->pid;
+    bool found = associate_va_with_cg_fact(tsk, va_space);
+    if(found) {
+        pr_info("Set cg_fact");
+    } else {
+        pr_info("cg_fact not found!");
+    }
+    xa_store(&g_uvm_global.pid_to_va_space, tsk->pid, va_space ,GFP_ATOMIC);
+
     uvm_spin_unlock(&va_space_mm->lock);
     atomic_long_set_release((atomic_long_t *)&filp->private_data, (long)uvm_file | UVM_FD_MM);
 
@@ -1233,7 +1250,7 @@ static int uvm_init(void)
         goto error;
     }
 
-    pr_info("Loaded the UVM driver, major device number %d. __UT_MOD_8\n", MAJOR(g_uvm_base_dev));
+    pr_info("Loaded the UVM driver, major device number %d. __UT_MOD_10\n", MAJOR(g_uvm_base_dev));
 
     if (uvm_enable_builtin_tests)
         pr_info("Built-in UVM tests are enabled. This is a security risk.\n");

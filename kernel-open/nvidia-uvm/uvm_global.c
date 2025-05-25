@@ -21,6 +21,8 @@
 
 *******************************************************************************/
 
+#include "linux/pid_types.h"
+#include "linux/xarray.h"
 #include "uvm_api.h"
 #include "uvm_ats.h"
 #include "uvm_global.h"
@@ -81,6 +83,21 @@ static void uvm_unregister_callbacks(void)
     }
 }
 
+inline bool associate_va_with_cg_fact(struct task_struct *tsk, uvm_va_space_t *va_space) {
+    struct cgroup_subsys_state *css = task_get_css(tsk, uvm_ctrl_get_subsys_id());
+    va_space->css_id = css->id;
+    struct cgroup_facts *cg_fact, *tmp;
+    bool found = false;
+    list_for_each_entry_safe(cg_fact, tmp, &g_uvm_global.cgroups.list, node){
+        if(cg_fact->id == css->id){
+            va_space->parent_cgp = cg_fact;
+            pr_info("set parent_cgp with id %u", css->id);
+            found = true;
+        }
+    }
+    return found;
+}
+
 static void uvm_ctrl_new_css(struct cgroup_subsys_state *css)
 {
     // Hopefully I don't overwrite with missed cgroups but check anyway
@@ -94,6 +111,9 @@ static void uvm_ctrl_new_css(struct cgroup_subsys_state *css)
     struct cgroup_facts *cgf = kzalloc(sizeof(struct cgroup_facts), GFP_KERNEL);
     // If you want css, call css_from_id
     cgf->id = css->id;
+    cgf->size = 0;
+    cgf->soft_lim = DEFAULT_SOFT_LIMIT;
+    cgf->hard_lim = DEFAULT_HARD_LIMIT;
     pr_info("New css wit id %u", cgf->id);
     INIT_LIST_HEAD(&cgf->above_sof_limit.list);
     uvm_mutex_init(&cgf->cgroup_lock, UVM_LOCK_ORDER_ABOVE_SOFT_LIST);
@@ -116,6 +136,56 @@ static void uvm_ctrl_delete_css(struct cgroup_subsys_state *css){
     uvm_mutex_unlock(&g_uvm_global.cgroups.lock);
 }
 
+static void uvm_ctrl_change_limit(struct cgroup_subsys_state *css, enum uvm_ctrl_callback_type lim_type, u64 new_limit) {
+    struct cgroup_facts *entry, *tmp;
+    list_for_each_entry_safe(entry, tmp, &g_uvm_global.cgroups.list, node){
+        if(entry->id == css->id) {
+            switch(lim_type){
+            case UVM_SOFT_LIMIT_CHANGED:
+                entry->soft_lim = new_limit;
+                break;
+            case UVM_HARD_LIMIT_CHANGED:
+                entry->hard_lim = new_limit;
+                break;
+            default:
+                    pr_err("Unknown type update\n");
+              break;
+            }
+        }
+    }
+}
+
+static void uvm_ctrl_got_new_proc(struct cgroup_subsys_state *css, struct task_struct *tsk) {
+    struct cgroup_facts *ent, *tmp;
+
+    list_for_each_entry(ent, &g_uvm_global.cgroups.list, node){
+        bool found = false;
+        if(ent->id == css->id){
+            found = true;
+            break;
+        }
+        if(!found){
+            pr_err("CSS NOT FOUDN!\n");
+        }
+    }
+    void *entry;
+    do{
+        entry = xa_load(&g_uvm_global.pid_to_va_space, tsk->pid);
+    }while(xa_is_err(entry));
+
+    // uvm_va_space_t *va_space = entry;
+    // va_space->parent_cgp = ent;
+    
+    uvm_va_space_t *va_space, *va_space_tmp;
+    list_for_each_entry_safe(va_space, va_space_tmp, &g_uvm_global.va_spaces.list, list_node){
+        if(va_space->css_id == css->id) {
+            va_space->parent_cgp = ent;
+            pr_info("Set parent_cgp for cgp id\n", va_space->css_id);
+        }
+    }
+}
+
+
 static void uvm_ctrl_callback_handler(struct uvm_ctrl_callback_info callback_info)
 {
     enum uvm_ctrl_callback_type type = callback_info.type;
@@ -135,17 +205,20 @@ static void uvm_ctrl_callback_handler(struct uvm_ctrl_callback_info callback_inf
         pr_info("UVM_PROC_MOVED\n");
         break;
     case UVM_SOFT_LIMIT_CHANGED:
+        uvm_ctrl_change_limit(callback_info.css, type, callback_info.soft_limit);
         pr_info("UVM_SOFT_LIMIT_CHANGED\n");
         break;
     case UVM_HARD_LIMIT_CHANGED:
-        pr_info("UVM_HARD_LIMIT_CHANGED\n");
+        uvm_ctrl_change_limit(callback_info.css, type, callback_info.hard_limit);
+        pr_info("UVM_HARD_LIMIT_CHANGED %llu %llu\n", callback_info.hard_limit, callback_info.soft_limit);
         break;
       break;
     case UVM_NEW_TASK:
-        pr_info("UVM_NEW_TASK\n");
+        // pr_info("UVM_NEW_TASK\n");
+        // uvm_ctrl_got_new_proc(callback_info.css, callback_info.tsk);
         break;
     case UVM_EXIT_TASK:
-        pr_info("UVM_EXIT_TASK\n");
+        // pr_info("UVM_EXIT_TASK\n");
       break;
     }
 }
@@ -189,6 +262,9 @@ NV_STATUS uvm_global_init(void)
     // BUG: The root css was working, ab kyu nahi aa raha bhai
     get_missed_css();
     pr_info("Done with missed css\n");
+
+    // Initialize the pid_to_va_space 
+    xa_init(&g_uvm_global.pid_to_va_space);
 
     status = uvm_kvmalloc_init();
     if (status != NV_OK) {

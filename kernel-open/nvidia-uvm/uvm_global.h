@@ -24,6 +24,7 @@
 #ifndef __UVM_GLOBAL_H__
 #define __UVM_GLOBAL_H__
 
+#include "linux/xarray.h"
 #include "nv_uvm_types.h"
 #include "uvm_extern_decl.h"
 #include "uvm_linux.h"
@@ -155,6 +156,8 @@ struct uvm_global_struct
 
     unsigned long missedFlags;
 
+    // store pid to va_space mapping
+    struct xarray pid_to_va_space; 
     // True if the VM has AMD's SEV, or equivalent HW security extensions such
     // as Intel's TDX, enabled. The flag is always false on the host.
     //
@@ -167,6 +170,9 @@ struct uvm_global_struct
     bool conf_computing_enabled;
 };
 
+
+inline bool associate_va_with_cg_fact(struct task_struct *tsk, uvm_va_space_t *va_space);
+
 // Whenever a process is created it belongs to SOME cgroup
 // Each cgroup will evict based on eviction policy
 // Selecting the process inside the cgroup will be based on eviction policy
@@ -178,8 +184,12 @@ struct cgroup_facts{
         struct list_head list;
     } above_sof_limit;
 
+    uvm_va_space_t *heavy_proc;
     struct list_head node;
     unsigned int id; // I will match the id of the css
+    u64 soft_lim;
+    u64 hard_lim;
+    u64 size;
     uvm_mutex_t cgroup_lock;
 };
 

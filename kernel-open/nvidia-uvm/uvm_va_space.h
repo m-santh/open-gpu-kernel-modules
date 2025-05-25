@@ -436,11 +436,19 @@ struct uvm_va_space_struct
     struct list_head va_block_used;
     uvm_spinlock_t list_lock;
 
-    struct list_head list_node_for_cgp;
+    struct list_head list_node_for_abov_sof;
     bool is_above_sof_lim_list;
 
     // size allocated
     u64 size;
+
+    // CSS associated with the process
+    u64 css_id;
+
+    struct cgroup_facts *parent_cgp;
+
+    // Which pid
+    u32 pid;
 
     // Queue item for deferred f_ops->release() handling
     nv_kthread_q_item_t deferred_release_q_item;
