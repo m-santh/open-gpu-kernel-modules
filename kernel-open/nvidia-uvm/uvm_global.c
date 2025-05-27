@@ -146,6 +146,12 @@ static void uvm_ctrl_change_limit(struct cgroup_subsys_state *css, enum uvm_ctrl
             switch(lim_type){
             case UVM_SOFT_LIMIT_CHANGED:
                 entry->soft_lim = new_limit;
+                if(entry->is_above_sof_lim_list && entry->size < new_limit){
+                    uvm_mutex_lock(&g_uvm_global.above_sof_limit.lock);
+                    entry->is_above_sof_lim_list = false;
+                    list_del_init(&entry->list_node_for_abov_sof);
+                    uvm_mutex_unlock(&g_uvm_global.above_sof_limit.lock);
+                }
                 break;
             case UVM_HARD_LIMIT_CHANGED:
                 entry->hard_lim = new_limit;
@@ -209,11 +215,11 @@ static void uvm_ctrl_callback_handler(struct uvm_ctrl_callback_info callback_inf
         break;
     case UVM_SOFT_LIMIT_CHANGED:
         uvm_ctrl_change_limit(callback_info.css, type, callback_info.soft_limit);
-        pr_info("UVM_SOFT_LIMIT_CHANGED\n");
+        pr_info("UVM_SOFT_LIMIT_CHANGED %llu\n", callback_info.soft_limit);
         break;
     case UVM_HARD_LIMIT_CHANGED:
         uvm_ctrl_change_limit(callback_info.css, type, callback_info.hard_limit);
-        pr_info("UVM_HARD_LIMIT_CHANGED %llu %llu\n", callback_info.hard_limit, callback_info.soft_limit);
+        pr_info("UVM_HARD_LIMIT_CHANGED %llu\n", callback_info.hard_limit);
         break;
       break;
     case UVM_NEW_TASK:

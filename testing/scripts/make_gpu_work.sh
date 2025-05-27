@@ -76,15 +76,17 @@ if [ -z ${SOFT_LIMIT+x} ]; then
   die "No soft limit given";
 fi
 if [ -z ${HARD_LIMIT+x} ]; then
-  die "No slice name given";
+  die "No hard limit given";
   SLICE_NAME=$$
 fi
 
-if [ -z ${SLICE_NAME+x} ]; then
-  die "No hard limit given";
-fi
 
 PID=$$
+if [ -z ${SLICE_NAME+x} ]; then
+  echo "No name given using ${PID} ";
+  SLICE_NAME="${PID}.slice"
+fi
+
 
 echo "EXEC_FILE: $EXEC_FILE"
 echo "SOFT_LIMIT: $SOFT_LIMIT"
@@ -93,7 +95,7 @@ echo "SLICE_NAME: ${SLICE_NAME}"
 
 check_prereq
 
-slice="/sys/fs/cgroup/${SLICE_NAME}.slice"
+slice="/sys/fs/cgroup/${SLICE_NAME}"
 sudo sh -c "echo '+uvm_ctrl' > /sys/fs/cgroup/cgroup.subtree_control" 
 sudo mkdir -p "${slice}"
 # sudo sh -c "echo 'strict' > ${slice}/gpu_mem.mode" 

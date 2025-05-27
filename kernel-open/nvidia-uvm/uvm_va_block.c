@@ -2210,7 +2210,7 @@ static NV_STATUS block_alloc_gpu_chunk(uvm_va_block_t *block,
     if(unlikely(!(va_space->parent_cgp->heavy_proc)) ||
         va_space->size > va_space->parent_cgp->heavy_proc->size){
         va_space->parent_cgp->heavy_proc = va_space;
-        pr_info("Changed heavy_proc\n");
+        // pr_info("Changed heavy_proc\n");
     }
     uvm_mutex_unlock(&curr_cgp_facts->cgroup_lock);
 

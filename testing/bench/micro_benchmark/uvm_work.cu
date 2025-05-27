@@ -103,9 +103,10 @@ int main(int argc, char *argv[]) {
 
   if (mode == 'r') {
     ull perThreadHandle = cceil(size, totalThreads);
-    cout << "\nGrid :" << grid << "\nBlock: " << block
+    cout << "\nGrid: " << grid << "\nBlock: " << block
          << "\ntotalThreads: " << totalThreads
-         << "\nperThread :" << perThreadHandle << "\n";
+         << "\nperThread: " << perThreadHandle
+         << "\niter: "<< iter << "\nSize: "<< size << "\n";
     cudaMallocManaged(&devPtr, size);
     regular<<<grid, block>>>(devPtr, size, iter, perThreadHandle);
   } else {
