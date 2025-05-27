@@ -91,6 +91,9 @@ inline bool associate_va_with_cg_fact(struct task_struct *tsk, uvm_va_space_t *v
     list_for_each_entry_safe(cg_fact, tmp, &g_uvm_global.cgroups.list, node){
         if(cg_fact->id == css->id){
             va_space->parent_cgp = cg_fact;
+            uvm_mutex_lock(&cg_fact->all_procs.proc_lock);
+            list_add_tail(&va_space->node_for_all_procs_cgp, &cg_fact->all_procs.proc_list);
+            uvm_mutex_unlock(&cg_fact->all_procs.proc_lock);
             pr_info("set parent_cgp with id %u", css->id);
             found = true;
         }
@@ -115,9 +118,9 @@ static void uvm_ctrl_new_css(struct cgroup_subsys_state *css)
     cgf->soft_lim = DEFAULT_SOFT_LIMIT;
     cgf->hard_lim = DEFAULT_HARD_LIMIT;
     pr_info("New css wit id %u", cgf->id);
-    INIT_LIST_HEAD(&cgf->above_sof_limit.list);
-    uvm_mutex_init(&cgf->cgroup_lock, UVM_LOCK_ORDER_ABOVE_SOFT_LIST);
-    uvm_mutex_init(&cgf->above_sof_limit.lock, UVM_LOCK_ORDER_CGROUP_LIST);
+    INIT_LIST_HEAD(&cgf->all_procs.proc_list);
+    uvm_mutex_init(&cgf->cgroup_lock, UVM_LOCK_ORDER_CGROUP_LIST);
+    uvm_mutex_init(&cgf->all_procs.proc_lock, UVM_LOCK_ORDER_CGROUP_LIST);
     uvm_mutex_lock(&g_uvm_global.cgroups.lock);
     list_add_tail(&cgf->node, &g_uvm_global.cgroups.list);
     uvm_mutex_unlock(&g_uvm_global.cgroups.lock);
@@ -155,36 +158,36 @@ static void uvm_ctrl_change_limit(struct cgroup_subsys_state *css, enum uvm_ctrl
     }
 }
 
-static void uvm_ctrl_got_new_proc(struct cgroup_subsys_state *css, struct task_struct *tsk) {
-    struct cgroup_facts *ent, *tmp;
-
-    list_for_each_entry(ent, &g_uvm_global.cgroups.list, node){
-        bool found = false;
-        if(ent->id == css->id){
-            found = true;
-            break;
-        }
-        if(!found){
-            pr_err("CSS NOT FOUDN!\n");
-        }
-    }
-    void *entry;
-    do{
-        entry = xa_load(&g_uvm_global.pid_to_va_space, tsk->pid);
-    }while(xa_is_err(entry));
-
-    // uvm_va_space_t *va_space = entry;
-    // va_space->parent_cgp = ent;
-    
-    uvm_va_space_t *va_space, *va_space_tmp;
-    list_for_each_entry_safe(va_space, va_space_tmp, &g_uvm_global.va_spaces.list, list_node){
-        if(va_space->css_id == css->id) {
-            va_space->parent_cgp = ent;
-            pr_info("Set parent_cgp for cgp id\n", va_space->css_id);
-        }
-    }
-}
-
+// static void uvm_ctrl_got_new_proc(struct cgroup_subsys_state *css, struct task_struct *tsk) {
+//     struct cgroup_facts *ent, *tmp;
+//
+//     list_for_each_entry(ent, &g_uvm_global.cgroups.list, node){
+//         bool found = false;
+//         if(ent->id == css->id){
+//             found = true;
+//             break;
+//         }
+//         if(!found){
+//             pr_err("CSS NOT FOUDN!\n");
+//         }
+//     }
+//     void *entry;
+//     do{
+//         entry = xa_load(&g_uvm_global.pid_to_va_space, tsk->pid);
+//     }while(xa_is_err(entry));
+//
+//     // uvm_va_space_t *va_space = entry;
+//     // va_space->parent_cgp = ent;
+//     
+//     uvm_va_space_t *va_space, *va_space_tmp;
+//     list_for_each_entry_safe(va_space, va_space_tmp, &g_uvm_global.va_spaces.list, list_node){
+//         if(va_space->css_id == css->id) {
+//             va_space->parent_cgp = ent;
+//             pr_info("Set parent_cgp for cgp id\n", va_space->css_id);
+//         }
+//     }
+// }
+//
 
 static void uvm_ctrl_callback_handler(struct uvm_ctrl_callback_info callback_info)
 {
@@ -255,6 +258,9 @@ NV_STATUS uvm_global_init(void)
 
     uvm_mutex_init(&g_uvm_global.cgroups.lock, UVM_LOCK_ORDER_CGROUP_LIST);
     INIT_LIST_HEAD(&g_uvm_global.cgroups.list);
+
+    uvm_mutex_init(&g_uvm_global.above_sof_limit.lock, UVM_LOCK_ORDER_ABOVE_SOFT_LIST);
+    INIT_LIST_HEAD(&g_uvm_global.above_sof_limit.list);
 
     uvm_ctrl_register_callback(uvm_ctrl_callback_handler);
     pr_info("Initalized the callback\n");

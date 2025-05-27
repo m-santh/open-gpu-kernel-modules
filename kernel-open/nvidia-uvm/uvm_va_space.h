@@ -436,16 +436,17 @@ struct uvm_va_space_struct
     struct list_head va_block_used;
     uvm_spinlock_t list_lock;
 
-    struct list_head list_node_for_abov_sof;
-    bool is_above_sof_lim_list;
-
     // size allocated
     u64 size;
 
     // CSS associated with the process
     u64 css_id;
 
+    // The cgp it belongs to
     struct cgroup_facts *parent_cgp;
+
+    // list node for inclusion in cgrp_facts
+    struct list_head node_for_all_procs_cgp;
 
     // Which pid
     u32 pid;

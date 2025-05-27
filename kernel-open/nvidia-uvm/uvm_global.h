@@ -154,6 +154,12 @@ struct uvm_global_struct
         struct list_head list;
     } cgroups;
 
+    struct
+    {
+        uvm_mutex_t lock;
+        struct list_head list;
+    } above_sof_limit;
+
     unsigned long missedFlags;
 
     // store pid to va_space mapping
@@ -178,11 +184,14 @@ inline bool associate_va_with_cg_fact(struct task_struct *tsk, uvm_va_space_t *v
 // Selecting the process inside the cgroup will be based on eviction policy
 // But selecting which cgroup will be selected is done randomly
 struct cgroup_facts{
-    struct
-    {
-        uvm_mutex_t lock;
-        struct list_head list;
-    } above_sof_limit;
+
+    struct list_head list_node_for_abov_sof;
+    bool is_above_sof_lim_list;
+
+    struct{
+        struct list_head proc_list;
+        uvm_mutex_t proc_lock;
+    } all_procs;
 
     uvm_va_space_t *heavy_proc;
     struct list_head node;

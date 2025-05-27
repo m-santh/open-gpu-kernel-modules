@@ -223,7 +223,8 @@ NV_STATUS uvm_va_space_create(struct address_space *mapping, uvm_va_space_t **va
     INIT_LIST_HEAD(&va_space->va_block_used);
     INIT_LIST_HEAD(&va_space->va_block_unused);
     uvm_spin_lock_init(&va_space->list_lock, UVM_LOCK_ORDER_LEAF);
-    va_space->is_above_sof_lim_list = false;
+
+    INIT_LIST_HEAD(&va_space->node_for_all_procs_cgp);
 
     // Init to 0 since we rely on atomic_inc_return behavior to return 1 as the
     // first ID.
@@ -508,11 +509,20 @@ void uvm_va_space_destroy(uvm_va_space_t *va_space)
     //         }
     //     }
     struct cgroup_facts *cg_fact = va_space->parent_cgp;
-    uvm_mutex_lock(&cg_fact->above_sof_limit.lock);
-        if(va_space->is_above_sof_lim_list)
-            list_del(&va_space->list_node_for_abov_sof);
-    uvm_mutex_unlock(&cg_fact->above_sof_limit.lock);
-    cg_fact->size -= va_space->size;
+    if(cg_fact->heavy_proc == va_space)
+        cg_fact->heavy_proc = NULL;
+    if (va_space->parent_cgp) {
+        uvm_mutex_lock(&cg_fact->all_procs.proc_lock);
+        list_del(&va_space->node_for_all_procs_cgp);
+        cg_fact->size -= va_space->size;
+        uvm_mutex_unlock(&cg_fact->all_procs.proc_lock);
+
+        if( cg_fact->is_above_sof_lim_list && cg_fact->size < cg_fact->soft_lim){
+            uvm_mutex_lock(&g_uvm_global.above_sof_limit.lock);
+            list_del_init(&cg_fact->list_node_for_abov_sof);
+            uvm_mutex_unlock(&g_uvm_global.above_sof_limit.lock);
+        }
+    }
 
 
     uvm_perf_heuristics_stop(va_space);

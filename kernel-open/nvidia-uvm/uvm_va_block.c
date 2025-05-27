@@ -2088,9 +2088,9 @@ static NV_STATUS block_alloc_gpu_chunk(uvm_va_block_t *block,
     // pr_info("SOFT : %llu ; HARD : %llu\n", soft_lim,hard_lim);
     if(size_before_alloc + size < hard_lim) {
     gpu_chunk = block_retry_get_free_chunk(retry, gpu, size);
-        if(gpu_chunk) {
-            pr_info("Found on retry\n");
-        }
+        // if(gpu_chunk) {
+        //     pr_info("Found on retry\n");
+        // }
     }
     if (!gpu_chunk) {
         uvm_va_block_test_t *block_test = uvm_va_block_get_test(block);
@@ -2121,12 +2121,15 @@ static NV_STATUS block_alloc_gpu_chunk(uvm_va_block_t *block,
             if(size_before_alloc + size >= hard_lim){
                 evict_from_this = curr_cgp_facts->heavy_proc;
                 if(unlikely(evict_from_this == NULL)){
-                    evict_from_this = list_first_entry(&curr_cgp_facts->above_sof_limit.list,
-                                                             uvm_va_space_t,  list_node_for_abov_sof);
+                    uvm_va_space_t *tmp;
+                    list_for_each_entry_safe(evict_from_this, tmp, &curr_cgp_facts->all_procs.proc_list, node_for_all_procs_cgp){
+                        if(evict_from_this->size)
+                            break;
+                    }
                     // AS the size of above hard limit there MUST be some process in the above soft limit list
                 }
-                pr_info("Evict from self, own pid : %u evict pid : %u  size: %llu, evict_size %llu current limit %llu\n",
-                        va_space->pid, evict_from_this->pid, va_space->size, evict_from_this->size,curr_cgp_facts->hard_lim);
+                // pr_info("Evict from self, own pid : %u evict pid : %u  size: %llu, evict_size %llu current limit %llu\n",
+                        // va_space->pid, evict_from_this->pid, va_space->size, evict_from_this->size,curr_cgp_facts->hard_lim);
                 status = uvm_pmm_gpu_alloc_user_va_space(&gpu->pmm, 1, size, UVM_PMM_ALLOC_FLAGS_EVICT,
                                                          &gpu_chunk, &retry->tracker, evict_from_this);
             } else {
@@ -2135,14 +2138,14 @@ static NV_STATUS block_alloc_gpu_chunk(uvm_va_block_t *block,
                 struct cgroup_facts *cg_fact = NULL, *tmp;  
                 bool found_list = false;
                 list_for_each_entry_safe(cg_fact, tmp, &g_uvm_global.cgroups.list, node){
-                    if(list_empty(&cg_fact->above_sof_limit.list))
+                    if(unlikely(list_empty(&cg_fact->all_procs.proc_list)))
                         continue;
                     else{
                         found_list = true;
                         break;
                     }
                 }
-                if(!found_list)
+                if(unlikely(!found_list))
                     cg_fact = NULL;
                 if(!(list_is_singular(&g_uvm_global.cgroups.list) || list_empty(&g_uvm_global.cgroups.list) )){
                     left_shift_list(&g_uvm_global.cgroups.list);
@@ -2158,14 +2161,14 @@ static NV_STATUS block_alloc_gpu_chunk(uvm_va_block_t *block,
                     }
                     evict_from_this = cg_fact->heavy_proc;
                     if(unlikely(evict_from_this == NULL)){
-                        evict_from_this = list_first_entry_or_null(&cg_fact->above_sof_limit.list,  uvm_va_space_t,  list_node_for_abov_sof);
+                        evict_from_this = list_first_entry_or_null(&cg_fact->all_procs.proc_list,  uvm_va_space_t,  node_for_all_procs_cgp);
                     }
                     if(unlikely(evict_from_this == NULL)){
                         pr_err("Couldn't get evict_from_this, so evict from self\n");
                         evict_from_this = va_space;
                     } else{
-                        if(!(list_is_singular(&cg_fact->above_sof_limit.list) || list_empty(&cg_fact->above_sof_limit.list) )){
-                            left_shift_list(&cg_fact->above_sof_limit.list);
+                        if(!(list_is_singular(&cg_fact->all_procs.proc_list) || list_empty(&cg_fact->all_procs.proc_list) )){
+                            left_shift_list(&cg_fact->all_procs.proc_list);
                         }
                     }
                 }
@@ -2173,8 +2176,8 @@ static NV_STATUS block_alloc_gpu_chunk(uvm_va_block_t *block,
                 // pr_info("pid: %u size:%llu, current limit %llu\n",
                 //         evict_from_this->pid, evict_from_this->size, curr_cgp_facts->hard_lim);
 
-                pr_info("Evict from anyone above the soft limit, own pid: %u, evict pid: %u , size %llu, evict size: %llu, current limit %llu\n",
-                        va_space->pid, evict_from_this->pid, va_space->size, evict_from_this->size, curr_cgp_facts->hard_lim);
+                // pr_info("Evict from anyone above the soft limit, own pid: %u, evict pid: %u , size %llu, evict size: %llu, current limit %llu\n",
+                        // va_space->pid, evict_from_this->pid, va_space->size, evict_from_this->size, curr_cgp_facts->hard_lim);
                 status = uvm_pmm_gpu_alloc_user_va_space(&gpu->pmm, 1, size, UVM_PMM_ALLOC_FLAGS_EVICT,
                                                          &gpu_chunk, &retry->tracker, evict_from_this);
 
@@ -2214,12 +2217,12 @@ static NV_STATUS block_alloc_gpu_chunk(uvm_va_block_t *block,
     u64 size_after_alloc = curr_cgp_facts->size;
     if(size_after_alloc >= soft_lim && size_before_alloc < soft_lim) { 
         struct cgroup_facts *entry = va_space->parent_cgp;
-        uvm_mutex_lock(&entry->above_sof_limit.lock);
-        if(!(va_space->is_above_sof_lim_list)){
-            list_add_tail(&va_space->list_node_for_abov_sof, &entry->above_sof_limit.list);
-            va_space->is_above_sof_lim_list = true;
+        uvm_mutex_lock(&g_uvm_global.above_sof_limit.lock);
+        if(!entry->is_above_sof_lim_list){
+            list_add_tail(&entry->list_node_for_abov_sof, &g_uvm_global.above_sof_limit.list);
+            entry->is_above_sof_lim_list = true;
         }
-        uvm_mutex_unlock(&entry->above_sof_limit.lock);
+        uvm_mutex_unlock(&g_uvm_global.above_sof_limit.lock);
     }
     uvm_perf_event_notify_gpu_memory_update(&va_space->perf_events,
                                                gpu->id,

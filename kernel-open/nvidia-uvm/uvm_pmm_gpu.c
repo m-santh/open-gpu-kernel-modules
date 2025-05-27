@@ -1675,10 +1675,15 @@ static uvm_gpu_root_chunk_t *pick_root_chunk_to_evict_va_space(uvm_pmm_gpu_t *pm
     // they get mapped.
     if (!chunk)
         chunk = list_first_chunk(&va_space->va_block_used);
+    else{
+        left_shift_list(&va_space->va_block_unused);
+    }
 
     uvm_spin_lock(&pmm->list_lock);
-    if (chunk)
+    if (chunk){
         chunk_start_eviction(pmm, chunk);
+        left_shift_list(&va_space->va_block_used);
+    }
 
     uvm_spin_unlock(&pmm->list_lock);
     uvm_spin_unlock(&va_space->list_lock);
@@ -1780,20 +1785,20 @@ static NV_STATUS pick_and_evict_root_chunk_va_space(uvm_pmm_gpu_t *pmm,
     u64 after_dealloc_size = entry->size;
     u64 soft_lim = entry->soft_lim;
     if(before_dealloc_size >= soft_lim && after_dealloc_size < soft_lim) {
-        uvm_mutex_lock(&entry->above_sof_limit.lock);
-        if(va_space->is_above_sof_lim_list){
-            list_del_init(&va_space->list_node_for_abov_sof);
-            va_space->is_above_sof_lim_list = false;
+        uvm_mutex_lock(&g_uvm_global.above_sof_limit.lock);
+        if(entry->is_above_sof_lim_list){
+            list_del_init(&entry->list_node_for_abov_sof);
+            entry->is_above_sof_lim_list = false;
         }
         u64 max_size = 0;
         uvm_va_space_t *newMax;
-        list_for_each_entry(newMax, &entry->above_sof_limit.list, list_node_for_abov_sof){
+        list_for_each_entry(newMax, &entry->all_procs.proc_list, node_for_all_procs_cgp){
             if(newMax->size > max_size){
                 entry->heavy_proc = newMax;
                 max_size = newMax->size;
             }
         }
-        uvm_mutex_unlock(&entry->above_sof_limit.lock);
+        uvm_mutex_unlock(&g_uvm_global.above_sof_limit.lock);
     }
 
     chunk = &root_chunk->chunk;
