@@ -175,6 +175,8 @@ static NV_STATUS uvm_api_mm_initialize(UVM_MM_INITIALIZE_PARAMS *params, struct 
             break;
     }
 
+    uvm_spin_unlock(&va_space_mm->lock);
+    atomic_long_set_release((atomic_long_t *)&filp->private_data, (long)uvm_file | UVM_FD_MM);
     struct task_struct *tsk = mm->owner;
     if(tsk == NULL)
         pr_err("tsk struct is null\n");
@@ -187,10 +189,6 @@ static NV_STATUS uvm_api_mm_initialize(UVM_MM_INITIALIZE_PARAMS *params, struct 
     } else {
         pr_info("cg_fact not found!");
     }
-    xa_store(&g_uvm_global.pid_to_va_space, tsk->pid, va_space ,GFP_ATOMIC);
-
-    uvm_spin_unlock(&va_space_mm->lock);
-    atomic_long_set_release((atomic_long_t *)&filp->private_data, (long)uvm_file | UVM_FD_MM);
 
     return NV_OK;
 
