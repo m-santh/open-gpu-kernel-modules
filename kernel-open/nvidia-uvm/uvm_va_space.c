@@ -509,9 +509,9 @@ void uvm_va_space_destroy(uvm_va_space_t *va_space)
     //         }
     //     }
     struct cgroup_facts *cg_fact = va_space->parent_cgp;
-    if(cg_fact->heavy_proc == va_space)
-        cg_fact->heavy_proc = NULL;
-    if (va_space->parent_cgp) {
+    if (cg_fact) {
+        if(cg_fact->heavy_proc && cg_fact->heavy_proc == va_space)
+            cg_fact->heavy_proc = NULL;
         uvm_mutex_lock(&cg_fact->all_procs.proc_lock);
         list_del(&va_space->node_for_all_procs_cgp);
         cg_fact->size -= va_space->size;
