@@ -1,10 +1,8 @@
-#include <algorithm>
 #include <cerrno>
 #include <cuda_runtime.h>
 #include <curand.h>
 #include <curand_kernel.h>
 #include <iostream>
-#include <random>
 
 #define ull unsigned long long
 

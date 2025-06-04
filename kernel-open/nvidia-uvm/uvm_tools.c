@@ -2720,16 +2720,16 @@ NV_STATUS uvm_api_tools_get_uvm_pids(UVM_TOOLS_GET_UVM_PIDS_PARAMS *params, stru
                 continue;
             }*/
             // pr_info("inside loop\n");
-            uvm_va_space_down_read(va_space);
+            // uvm_va_space_down_read(va_space);
             mm = uvm_va_space_mm_retain(va_space);
             //pr_info("%llu\n",mm->owner);
             if(!mm){
-                uvm_va_space_up_read(va_space);
+                // uvm_va_space_up_read(va_space);
                 continue;
             }
             if(!mm->owner){
             uvm_va_space_mm_release(va_space);
-            uvm_va_space_up_read(va_space);
+            // uvm_va_space_up_read(va_space);
                 continue;
             }
             
@@ -2751,7 +2751,7 @@ NV_STATUS uvm_api_tools_get_uvm_pids(UVM_TOOLS_GET_UVM_PIDS_PARAMS *params, stru
 
             uvm_va_space_mm_release(va_space);
 
-            uvm_va_space_up_read(va_space);
+            // uvm_va_space_up_read(va_space);
 
 
     }
