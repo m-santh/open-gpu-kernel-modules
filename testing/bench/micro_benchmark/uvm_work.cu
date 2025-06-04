@@ -20,7 +20,12 @@ __global__ void regular(char *p, ull size, ull iterations_per_block,
   // Each thread iterates 'iterations_per_block' times over its assigned block
   for (ull k = 0; k < iterations_per_block; ++k) {
     for (ull i = start_idx; i < end_idx; ++i) {
-      p[i] = 'R' + (char)(i % 26);
+      ull cnt = 0;
+      for(ull j=2;j * j <= i; j++) {
+        if(j % i == 0)
+          cnt++;
+      }
+      p[i] = 'R' + cnt ;
     }
   }
 }
@@ -48,7 +53,12 @@ __global__ void irregular(char *p, curandState *rngState, ull size,
     for (int j = 0; j < perThreadAccess; ++j) {
       double rand_val = curand_uniform_double(&rngState[tid]);
       ull off = (ull)(rand_val * size) % size;
-      p[off] = 'I' + (char)((i * j) % 26);
+      ull cnt = 0;
+      for(ull i=2;i * i <= off; i++) {
+        if(i % off == 0)
+          cnt++;
+      }
+      p[off] = 'I' + cnt;
     }
   }
 }
