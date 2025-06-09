@@ -223,11 +223,11 @@ static void uvm_ctrl_callback_handler(struct uvm_ctrl_callback_info callback_inf
         break;
       break;
     case UVM_NEW_TASK:
-        // pr_info("UVM_NEW_TASK\n");
+        // pr_info("UVM_NEW_TASK, PID: %u \n",callback_info.tsk->pid);
         // uvm_ctrl_got_new_proc(callback_info.css, callback_info.tsk);
         break;
     case UVM_EXIT_TASK:
-        // pr_info("UVM_EXIT_TASK\n");
+        // pr_info("UVM_EXIT_TASK, PID: %u\n", callback_info.tsk->pid);
       break;
     }
 }

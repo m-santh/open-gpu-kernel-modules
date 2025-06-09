@@ -21,10 +21,10 @@ __global__ void regular(char *p, ull size, ull iterations_per_block,
   for (ull k = 0; k < iterations_per_block; ++k) {
     for (ull i = start_idx; i < end_idx; ++i) {
       ull cnt = 0;
-      for(ull j=2;j * j <= i; j++) {
-        if(j % i == 0)
-          cnt++;
-      }
+      // for(ull j=2;j * j <= i; j++) {
+      //   if(j % i == 0)
+      //     cnt++;
+      // }
       p[i] = 'R' + cnt ;
     }
   }

@@ -481,6 +481,7 @@ void uvm_va_space_detach_all_user_channels(uvm_va_space_t *va_space, struct list
 
 void uvm_va_space_destroy(uvm_va_space_t *va_space)
 {
+    pr_info("Destroying va_space  PID: %u", va_space->pid);
     uvm_va_range_t *va_range, *va_range_next;
     uvm_gpu_t *gpu;
     uvm_gpu_id_t gpu_id;
@@ -514,6 +515,7 @@ void uvm_va_space_destroy(uvm_va_space_t *va_space)
             cg_fact->heavy_proc = NULL;
         uvm_mutex_lock(&cg_fact->all_procs.proc_lock);
         list_del(&va_space->node_for_all_procs_cgp);
+        pr_info("Removed from cgroup list for pid: %u\n", va_space->pid);
         cg_fact->size -= va_space->size;
         uvm_mutex_unlock(&cg_fact->all_procs.proc_lock);
 
@@ -522,6 +524,8 @@ void uvm_va_space_destroy(uvm_va_space_t *va_space)
             list_del_init(&cg_fact->list_node_for_abov_sof);
             uvm_mutex_unlock(&g_uvm_global.above_sof_limit.lock);
         }
+    } else {
+        pr_err("Parent cgp not found! for pid: %u\n", va_space->pid);
     }
 
 

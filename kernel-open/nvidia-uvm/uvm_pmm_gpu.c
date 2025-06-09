@@ -1558,6 +1558,7 @@ void uvm_pmm_gpu_mark_root_chunk_unused(uvm_pmm_gpu_t *pmm, uvm_gpu_chunk_t *chu
 
 void uvm_pmm_gpu_mark_root_chunk_used_va_space(uvm_pmm_gpu_t *pmm, uvm_gpu_chunk_t *chunk, uvm_va_space_t *va_space)
 {
+    uvm_spin_lock(&pmm->list_lock);
     uvm_spin_lock(&va_space->list_lock);
 
     UVM_ASSERT(uvm_gpu_chunk_get_size(chunk) == UVM_CHUNK_SIZE_MAX);
@@ -1574,10 +1575,12 @@ void uvm_pmm_gpu_mark_root_chunk_used_va_space(uvm_pmm_gpu_t *pmm, uvm_gpu_chunk
     }
 
     uvm_spin_unlock(&va_space->list_lock);
+    uvm_spin_unlock(&pmm->list_lock);
 }
 
 void uvm_pmm_gpu_mark_root_chunk_unused_va_space(uvm_pmm_gpu_t *pmm, uvm_gpu_chunk_t *chunk, uvm_va_space_t *va_space)
 {
+    uvm_spin_lock(&pmm->list_lock);
     uvm_spin_lock(&va_space->list_lock);
 
     UVM_ASSERT(uvm_gpu_chunk_get_size(chunk) == UVM_CHUNK_SIZE_MAX);
@@ -1594,6 +1597,7 @@ void uvm_pmm_gpu_mark_root_chunk_unused_va_space(uvm_pmm_gpu_t *pmm, uvm_gpu_chu
     }
 
     uvm_spin_unlock(&va_space->list_lock);
+    uvm_spin_unlock(&pmm->list_lock);
 
 }
 
@@ -1667,6 +1671,7 @@ static uvm_gpu_root_chunk_t *pick_root_chunk_to_evict_va_space(uvm_pmm_gpu_t *pm
     //     chunk = list_first_chunk(&pmm->root_chunks.va_block_unused);
 
 
+    uvm_spin_lock(&pmm->list_lock);
     uvm_spin_lock(&va_space->list_lock);
     // if (!chunk)
     chunk = list_first_chunk(&va_space->va_block_unused);
@@ -1675,18 +1680,13 @@ static uvm_gpu_root_chunk_t *pick_root_chunk_to_evict_va_space(uvm_pmm_gpu_t *pm
     // they get mapped.
     if (!chunk)
         chunk = list_first_chunk(&va_space->va_block_used);
-    else{
-        left_shift_list(&va_space->va_block_unused);
-    }
 
-    uvm_spin_lock(&pmm->list_lock);
     if (chunk){
         chunk_start_eviction(pmm, chunk);
-        left_shift_list(&va_space->va_block_used);
     }
 
-    uvm_spin_unlock(&pmm->list_lock);
     uvm_spin_unlock(&va_space->list_lock);
+    uvm_spin_unlock(&pmm->list_lock);
 
     if (chunk)
         return root_chunk_from_chunk(pmm, chunk);

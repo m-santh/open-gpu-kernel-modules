@@ -2088,9 +2088,9 @@ static NV_STATUS block_alloc_gpu_chunk(uvm_va_block_t *block,
     // pr_info("SOFT : %llu ; HARD : %llu\n", soft_lim,hard_lim);
     if(size_before_alloc + size < hard_lim) {
     gpu_chunk = block_retry_get_free_chunk(retry, gpu, size);
-        // if(gpu_chunk) {
-        //     pr_info("Found on retry\n");
-        // }
+        if(gpu_chunk) {
+            // pr_info("Found on retry\n");
+        }
     }
     if (!gpu_chunk) {
         uvm_va_block_test_t *block_test = uvm_va_block_get_test(block);
@@ -2128,8 +2128,8 @@ static NV_STATUS block_alloc_gpu_chunk(uvm_va_block_t *block,
                     }
                     // AS the size of above hard limit there MUST be some process in the above soft limit list
                 }
-                // pr_info("Evict from self, own pid : %u evict pid : %u  size: %llu, evict_size %llu current limit %llu\n",
-                        // va_space->pid, evict_from_this->pid, va_space->size, evict_from_this->size,curr_cgp_facts->hard_lim);
+                // pr_info("Evict from self cgroup, own pid : %u evict pid : %u  size: %llu, evict_size %llu current limit %llu\n",
+                //         va_space->pid, evict_from_this->pid, va_space->size, evict_from_this->size,curr_cgp_facts->hard_lim);
                 status = uvm_pmm_gpu_alloc_user_va_space(&gpu->pmm, 1, size, UVM_PMM_ALLOC_FLAGS_EVICT,
                                                          &gpu_chunk, &retry->tracker, evict_from_this);
             } else {
@@ -2177,7 +2177,7 @@ static NV_STATUS block_alloc_gpu_chunk(uvm_va_block_t *block,
                 //         evict_from_this->pid, evict_from_this->size, curr_cgp_facts->hard_lim);
 
                 // pr_info("Evict from anyone above the soft limit, own pid: %u, evict pid: %u , size %llu, evict size: %llu, current limit %llu\n",
-                        // va_space->pid, evict_from_this->pid, va_space->size, evict_from_this->size, curr_cgp_facts->hard_lim);
+                //         va_space->pid, evict_from_this->pid, va_space->size, evict_from_this->size, curr_cgp_facts->hard_lim);
                 status = uvm_pmm_gpu_alloc_user_va_space(&gpu->pmm, 1, size, UVM_PMM_ALLOC_FLAGS_EVICT,
                                                          &gpu_chunk, &retry->tracker, evict_from_this);
 
