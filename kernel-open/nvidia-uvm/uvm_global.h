@@ -174,6 +174,7 @@ struct uvm_global_struct
     // This field is set once during global initialization (uvm_global_init),
     // and can be read afterwards without acquiring any locks.
     bool conf_computing_enabled;
+
 };
 
 

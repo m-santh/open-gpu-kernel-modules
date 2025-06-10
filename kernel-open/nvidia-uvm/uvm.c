@@ -289,7 +289,7 @@ static void uvm_mm_release(struct file *filp, struct file *uvm_file)
 
 static int uvm_release(struct inode *inode, struct file *filp)
 {
-    dump_stack();
+    // dump_stack();
     pr_info("In uvm_release\n");
     void *ptr;
     uvm_va_space_t *va_space;

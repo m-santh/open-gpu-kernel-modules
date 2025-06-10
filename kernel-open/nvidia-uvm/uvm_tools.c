@@ -3092,7 +3092,6 @@ static NV_STATUS uvm_tools_get_processor_uuid_table_common(UVM_TOOLS_GET_PROCESS
 
 
 NV_STATUS uvm_api_tools_get_gpus_uuid(UVM_TOOLS_GET_GPUs_UUID_PARAMS *params, struct file* filp){
-    {
     NvProcessorUuid *uuids;
     NvU64 remaining;
     uvm_gpu_t *gpu;
@@ -3145,9 +3144,9 @@ NV_STATUS uvm_api_tools_get_gpus_uuid(UVM_TOOLS_GET_GPUs_UUID_PARAMS *params, st
 
     if (remaining != 0)
         return NV_ERR_INVALID_ADDRESS;
+    fput(uvm_file);
 
     return NV_OK;
-}
 }
 
 
