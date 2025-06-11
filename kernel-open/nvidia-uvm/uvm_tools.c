@@ -2724,7 +2724,7 @@ NV_STATUS uvm_api_tools_get_uvm_pids(UVM_TOOLS_GET_UVM_PIDS_PARAMS *params, stru
             mm = uvm_va_space_mm_retain(va_space);
             //pr_info("%llu\n",mm->owner);
             if(!mm){
-                pr_err("No mm for va_space!\n");
+                // pr_err("No mm for va_space!\n");
                 // uvm_va_space_up_read(va_space);
                 continue;
             }
