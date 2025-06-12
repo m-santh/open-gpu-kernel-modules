@@ -268,7 +268,6 @@ static void uvm_release_deferred(void *data)
 static void uvm_mm_release(struct file *filp, struct file *uvm_file)
 {
     uvm_va_space_t *va_space = uvm_va_space_get(uvm_file);
-    pr_info("Got UVM file");
     uvm_va_space_mm_t *va_space_mm = &va_space->va_space_mm;
     struct mm_struct *mm = va_space_mm->mm;
 
@@ -276,21 +275,17 @@ static void uvm_mm_release(struct file *filp, struct file *uvm_file)
         uvm_va_space_mm_unregister(va_space);
 
         if (uvm_va_space_mm_enabled(va_space)){
-            pr_info("Going to pu the mm file\n");
             uvm_mmput(mm);
-            pr_info("Put the mm file\n");
         }
 
         va_space_mm->mm = NULL;
         fput(uvm_file);
-        pr_info("Put the uvm file\n");
     }
 }
 
 static int uvm_release(struct inode *inode, struct file *filp)
 {
     // dump_stack();
-    pr_info("In uvm_release\n");
     void *ptr;
     uvm_va_space_t *va_space;
     uvm_fd_type_t fd_type;
@@ -299,15 +294,12 @@ static int uvm_release(struct inode *inode, struct file *filp)
     fd_type = uvm_fd_type(filp, &ptr);
     UVM_ASSERT(fd_type != UVM_FD_INITIALIZING);
     if (fd_type == UVM_FD_UNINITIALIZED) {
-        pr_info("No reason to mm release\n");
         uvm_kvfree(filp->f_mapping);
         return 0;
     }
     else if (fd_type == UVM_FD_MM) {
         uvm_kvfree(filp->f_mapping);
-        pr_info("Going to mm release\n");
         uvm_mm_release(filp, (struct file *)ptr);
-        pr_info("mm release done\n");
         return 0;
     }
 
@@ -320,14 +312,11 @@ static int uvm_release(struct inode *inode, struct file *filp)
     // callback, early exit in case of a pm.lock acquisition failure is not
     // an option.  Instead, the teardown work normally performed synchronously
     // needs to be scheduled to run after uvm_resume() releases the lock.
-    pr_info("Trying to get uvm pm global lock\n");
     if (uvm_down_read_trylock(&g_uvm_global.pm.lock)) {
-        pr_info("Trying to destroy va_space 1\n");
         uvm_va_space_destroy(va_space);
         uvm_up_read(&g_uvm_global.pm.lock);
     }
     else {
-        pr_info("Something address space\n");
         // Remove references to this inode from the address_space.  This isn't
         // strictly necessary, as any CPU mappings of this file have already
         // been destroyed, and va_space->mapping won't be used again. Still,
@@ -339,7 +328,6 @@ static int uvm_release(struct inode *inode, struct file *filp)
         ret = nv_kthread_q_schedule_q_item(&g_uvm_global.deferred_release_q, &va_space->deferred_release_q_item);
         UVM_ASSERT(ret != 0);
     }
-    pr_info("UVM release done\n");
 
     return 0;
 }
