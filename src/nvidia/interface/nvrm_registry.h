@@ -1389,8 +1389,8 @@
 #define NV_REG_STR_RM_RC_WATCHDOG_DEFAULT                   NV_REG_STR_RM_RC_WATCHDOG_ENABLE
 
 #define NV_REG_STR_RM_WATCHDOG_TIMEOUT                      "RmWatchDogTimeOut"
-#define NV_REG_STR_RM_WATCHDOG_TIMEOUT_LOW                   0x00000007
-#define NV_REG_STR_RM_WATCHDOG_TIMEOUT_HI                    0x0000000C
+#define NV_REG_STR_RM_WATCHDOG_TIMEOUT_LOW                   0x0000000F
+#define NV_REG_STR_RM_WATCHDOG_TIMEOUT_HI                    0x00000014
 #define NV_REG_STR_RM_WATCHDOG_TIMEOUT_DEFAULT               NV_REG_STR_RM_WATCHDOG_TIMEOUT_LOW
 
 #define NV_REG_STR_RM_WATCHDOG_INTERVAL                      "RmWatchDogInterval"

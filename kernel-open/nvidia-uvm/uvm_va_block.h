@@ -39,6 +39,7 @@
 #include "uvm_va_block_types.h"
 #include "uvm_range_tree.h"
 #include "uvm_mmu.h"
+#include "uvm_va_space_mm.h"
 #include "nv-kthread-q.h"
 
 #include <linux/mmu_notifier.h>
@@ -2313,5 +2314,17 @@ NV_STATUS uvm_va_block_populate_page_cpu(uvm_va_block_t *va_block,
                                                                     \
     __status;                                                       \
 })
+
+
+static void left_shift_list(struct list_head *head)
+{
+    struct list_head *first;
+    if (list_empty(head) || list_is_singular(head)) {
+        return;
+    }
+    first = head->next;
+    list_del(first);
+    list_add_tail(first, head);
+}
 
 #endif // __UVM_VA_BLOCK_H__

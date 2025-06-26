@@ -21,7 +21,9 @@
 
 *******************************************************************************/
 
+#include "linux/uvm_ctrl.h"
 #include "uvm_api.h"
+#include "uvm_extern_decl.h"
 #include "uvm_global.h"
 #include "uvm_gpu_replayable_faults.h"
 #include "uvm_tools_init.h"
@@ -124,6 +126,19 @@ static NV_STATUS uvm_api_mm_initialize(UVM_MM_INITIALIZE_PARAMS *params, struct 
     }
     uvm_spin_unlock(&va_space_mm->lock);
     uvm_fd_type_set(filp, UVM_FD_MM, uvm_file);
+
+    struct task_struct *tsk = mm->owner;
+    if(tsk == NULL)
+        pr_err("tsk struct is null\n");
+    struct cgroup_subsys_state *css = task_get_css(tsk,uvm_ctrl_get_subsys_id());
+    va_space->css_id = css->id;
+    va_space->pid = tsk->pid;
+    bool found = associate_va_with_cg_fact(tsk, va_space);
+    if(found) {
+        pr_info("Set cg_fact");
+    } else {
+        pr_info("cg_fact not found!");
+    }
 
     return NV_OK;
 
@@ -239,8 +254,9 @@ static void uvm_release_mm(struct file *filp, struct file *uvm_file)
     if (uvm_va_space_mm_enabled(va_space)) {
         uvm_va_space_mm_unregister(va_space);
 
-        if (uvm_va_space_mm_enabled(va_space))
+        if (uvm_va_space_mm_enabled(va_space)){
             uvm_mmput(mm);
+        }
 
         va_space_mm->mm = NULL;
         fput(uvm_file);
@@ -1211,7 +1227,7 @@ static int uvm_init(void)
         goto error;
     }
 
-    pr_info("Loaded the UVM driver, major device number %d. __UT_LATEST_MOD_1\n", MAJOR(g_uvm_base_dev));
+    pr_info("Loaded the UVM driver, major device number %d. __UT_LATEST_MOD_2\n", MAJOR(g_uvm_base_dev));
 
     if (uvm_enable_builtin_tests)
         UVM_INFO_PRINT("Built-in UVM tests are enabled. This is a security risk.\n");

@@ -23,6 +23,7 @@
 
 #include "uvm_api.h"
 #include "uvm_va_space.h"
+#include "uvm_extern_decl.h"
 #include "uvm_va_range.h"
 #include "uvm_lock.h"
 #include "uvm_global.h"
@@ -42,6 +43,8 @@
 #include "nv_uvm_interface.h"
 #include "nv-kthread-q.h"
 #include <linux/mmzone.h>
+#include <linux/uvm_ctrl.h>
+#include <linux/xarray.h>
 
 static bool processor_mask_array_test(const uvm_processor_mask_t *mask,
                                       uvm_processor_id_t mask_id,
@@ -175,6 +178,24 @@ static bool va_space_check_processors_masks(uvm_va_space_t *va_space)
     return true;
 }
 
+static struct task_struct *get_tsk_struct_from_va_space(uvm_va_space_t *va_space){
+    struct task_struct *tsk = NULL;
+    struct mm_struct *mm = uvm_va_space_mm_retain(va_space);
+    if(!mm){
+        pr_err("mm is NULL\n");
+        uvm_va_space_mm_release(va_space);
+    }else{
+        if(!mm->owner){
+            uvm_va_space_mm_release(va_space);
+        }else{
+            tsk = mm->owner;
+            get_task_struct(tsk);
+            uvm_va_space_mm_release(va_space);
+        }
+    }
+    return tsk;
+}
+
 NV_STATUS uvm_va_space_create(struct address_space *mapping, uvm_va_space_t **va_space_ptr, NvU64 flags)
 {
     NV_STATUS status;
@@ -197,6 +218,12 @@ NV_STATUS uvm_va_space_create(struct address_space *mapping, uvm_va_space_t **va
                    UVM_LOCK_ORDER_VA_SPACE_READ_ACQUIRE_WRITE_RELEASE_LOCK);
     uvm_spin_lock_init(&va_space->va_space_mm.lock, UVM_LOCK_ORDER_LEAF);
     uvm_range_tree_init(&va_space->va_range_tree);
+
+    INIT_LIST_HEAD(&va_space->va_block_used);
+    INIT_LIST_HEAD(&va_space->va_block_unused);
+    uvm_spin_lock_init(&va_space->list_lock, UVM_LOCK_ORDER_LEAF);
+
+    INIT_LIST_HEAD(&va_space->node_for_all_procs_cgp);
     uvm_init_rwsem(&va_space->ats.lock, UVM_LOCK_ORDER_LEAF);
 
     // Init to 0 since we rely on atomic_inc_return behavior to return 1 as the
@@ -457,6 +484,7 @@ void uvm_va_space_detach_all_user_channels(uvm_va_space_t *va_space, struct list
 
 void uvm_va_space_destroy(uvm_va_space_t *va_space)
 {
+    pr_info("Destroying va_space  PID: %u", va_space->pid);
     uvm_va_range_t *va_range, *va_range_next;
     uvm_gpu_t *gpu;
     uvm_gpu_id_t gpu_id;
@@ -468,6 +496,41 @@ void uvm_va_space_destroy(uvm_va_space_t *va_space)
     uvm_mutex_lock(&g_uvm_global.va_spaces.lock);
     list_del(&va_space->list_node);
     uvm_mutex_unlock(&g_uvm_global.va_spaces.lock);
+
+    // struct task_struct *tsk = get_tsk_struct_from_va_space(va_space);
+    // struct cgroup_facts *entry, *tmp;
+    // if(tsk){
+    //     int get_subsys_id = uvm_ctrl_get_subsys_id();
+    //     struct cgroup_subsys_state *css = task_get_css(tsk,get_subsys_id);
+    //     put_task_struct(tsk);
+    //     list_for_each_entry_safe(entry, tmp, &g_uvm_global.cgroups.list, node){
+    //         if(entry->id == css->id) {
+    //             uvm_mutex_lock(&entry->above_sof_limit.lock);
+    //             if(va_space->is_above_sof_lim_list){
+    //                 list_del(&va_space->list_node_for_abov_sof);
+    //             }
+    //             uvm_mutex_unlock(&entry->above_sof_limit.lock);
+    //         }
+    //     }
+    struct cgroup_facts *cg_fact = va_space->parent_cgp;
+    if (cg_fact) {
+        if(cg_fact->heavy_proc && cg_fact->heavy_proc == va_space)
+            cg_fact->heavy_proc = NULL;
+        uvm_mutex_lock(&cg_fact->all_procs.proc_lock);
+        list_del(&va_space->node_for_all_procs_cgp);
+        pr_info("Removed from cgroup list for pid: %u\n", va_space->pid);
+        cg_fact->size -= va_space->size;
+        uvm_mutex_unlock(&cg_fact->all_procs.proc_lock);
+
+        if( cg_fact->is_above_sof_lim_list && cg_fact->size < cg_fact->soft_lim){
+            uvm_mutex_lock(&g_uvm_global.above_sof_limit.lock);
+            list_del_init(&cg_fact->list_node_for_abov_sof);
+            uvm_mutex_unlock(&g_uvm_global.above_sof_limit.lock);
+        }
+    } else {
+        pr_err("Parent cgp not found! for pid: %u\n", va_space->pid);
+    }
+
 
     uvm_perf_heuristics_stop(va_space);
 

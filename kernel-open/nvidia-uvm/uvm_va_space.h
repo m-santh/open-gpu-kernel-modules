@@ -437,6 +437,24 @@ struct uvm_va_space_struct
         uvm_test_parent_gpu_inject_error_t parent_gpu_error;
     } test;
 
+    struct list_head va_block_unused;
+    struct list_head va_block_used;
+    uvm_spinlock_t list_lock;
+
+    // size allocated
+    u64 size;
+
+    // CSS associated with the process
+    u64 css_id;
+
+    // The cgp it belongs to
+    struct cgroup_facts *parent_cgp;
+
+    // list node for inclusion in cgrp_facts
+    struct list_head node_for_all_procs_cgp;
+
+    // Which pid
+    u32 pid;
     // Queue item for deferred f_ops->release() handling
     nv_kthread_q_item_t deferred_release_q_item;
 };

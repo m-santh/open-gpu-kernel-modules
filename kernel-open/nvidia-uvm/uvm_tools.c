@@ -2702,6 +2702,7 @@ NV_STATUS uvm_api_tools_get_uvm_pids(UVM_TOOLS_GET_UVM_PIDS_PARAMS *params, stru
             mm = uvm_va_space_mm_retain(va_space);
             //pr_info("%llu\n",mm->owner);
             if(!mm){
+                // pr_err("No mm for va_space!\n");
                 // uvm_va_space_up_read(va_space);
                 continue;
             }
@@ -3069,7 +3070,6 @@ static NV_STATUS uvm_tools_get_processor_uuid_table_common(UVM_TOOLS_GET_PROCESS
 
 
 NV_STATUS uvm_api_tools_get_gpus_uuid(UVM_TOOLS_GET_GPUs_UUID_PARAMS *params, struct file* filp){
-    {
     NvProcessorUuid *uuids;
     NvU64 remaining;
     uvm_gpu_t *gpu;
@@ -3119,13 +3119,12 @@ NV_STATUS uvm_api_tools_get_gpus_uuid(UVM_TOOLS_GET_GPUs_UUID_PARAMS *params, st
     remaining = copy_to_user((void *)params->tablePtr, uuids, sizeof(NvProcessorUuid) * UVM_ID_MAX_PROCESSORS);
 
     uvm_kvfree(uuids);
-    fput(uvm_file);
 
     if (remaining != 0)
         return NV_ERR_INVALID_ADDRESS;
+    fput(uvm_file);
 
     return NV_OK;
-}
 }
 
 
