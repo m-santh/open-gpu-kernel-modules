@@ -2087,10 +2087,7 @@ static NV_STATUS block_alloc_gpu_chunk(uvm_va_block_t *block,
     uvm_va_space_t *evict_from_this = NULL;
     // pr_info("SOFT : %llu ; HARD : %llu\n", soft_lim,hard_lim);
     if(size_before_alloc + size < hard_lim) {
-    gpu_chunk = block_retry_get_free_chunk(retry, gpu, size);
-        if(gpu_chunk) {
-            // pr_info("Found on retry\n");
-        }
+        gpu_chunk = block_retry_get_free_chunk(retry, gpu, size);
     }
     if (!gpu_chunk) {
         uvm_va_block_test_t *block_test = uvm_va_block_get_test(block);
@@ -2103,11 +2100,6 @@ static NV_STATUS block_alloc_gpu_chunk(uvm_va_block_t *block,
             // Try allocating a new one without eviction if below sof limit
             if(size_before_alloc < hard_lim) {
                 status = uvm_pmm_gpu_alloc_user(&gpu->pmm, 1, size, UVM_PMM_ALLOC_FLAGS_NONE, &gpu_chunk, &retry->tracker);
-                if(status == NV_OK ) {
-                    // pr_info("Status OK");
-                    if(!gpu_chunk)
-                        pr_err("STATUS OK BUT CHUNK NULL!!\n");
-                }
             } else {
                 status = NV_ERR_NO_MEMORY;
             }
@@ -2134,19 +2126,29 @@ static NV_STATUS block_alloc_gpu_chunk(uvm_va_block_t *block,
                                                          &gpu_chunk, &retry->tracker, evict_from_this);
             } else {
 
-                uvm_mutex_lock(&g_uvm_global.cgroups.lock);
                 struct cgroup_facts *cg_fact = NULL, *tmp;  
                 bool found_list = false;
-                list_for_each_entry_safe(cg_fact, tmp, &g_uvm_global.cgroups.list, node){
+                // list_for_each_entry_safe(cg_fact, tmp, &g_uvm_global.cgroups.list, node){
+                //     if(unlikely(list_empty(&cg_fact->all_procs.proc_list)))
+                //         continue;
+                //     else{
+                //         found_list = true;
+                //         break;
+                //     }
+                // }
+                uvm_mutex_lock(&g_uvm_global.above_sof_limit.lock);
+                list_for_each_entry_safe(cg_fact, tmp, &g_uvm_global.above_sof_limit.list, list_node_for_abov_sof) {
                     if(unlikely(list_empty(&cg_fact->all_procs.proc_list)))
                         continue;
                     else{
                         found_list = true;
                         break;
                     }
-                }
+               }
+                uvm_mutex_lock(&g_uvm_global.above_sof_limit.lock);
                 if(unlikely(!found_list))
                     cg_fact = NULL;
+                uvm_mutex_lock(&g_uvm_global.cgroups.lock);
                 if(!(list_is_singular(&g_uvm_global.cgroups.list) || list_empty(&g_uvm_global.cgroups.list) )){
                     left_shift_list(&g_uvm_global.cgroups.list);
                 }
@@ -2155,10 +2157,6 @@ static NV_STATUS block_alloc_gpu_chunk(uvm_va_block_t *block,
                     pr_err("Couldn't get cg_fact, so evict from self\n");
                     evict_from_this = va_space;
                 } else {
-                    pr_info("Got cg_fact\n");    
-                    if(!(list_is_singular(&g_uvm_global.cgroups.list) || list_empty(&g_uvm_global.cgroups.list) )){
-                        left_shift_list(&g_uvm_global.cgroups.list);
-                    }
                     evict_from_this = cg_fact->heavy_proc;
                     if(unlikely(evict_from_this == NULL)){
                         evict_from_this = list_first_entry_or_null(&cg_fact->all_procs.proc_list,  uvm_va_space_t,  node_for_all_procs_cgp);
@@ -2166,10 +2164,6 @@ static NV_STATUS block_alloc_gpu_chunk(uvm_va_block_t *block,
                     if(unlikely(evict_from_this == NULL)){
                         pr_err("Couldn't get evict_from_this, so evict from self\n");
                         evict_from_this = va_space;
-                    } else{
-                        if(!(list_is_singular(&cg_fact->all_procs.proc_list) || list_empty(&cg_fact->all_procs.proc_list) )){
-                            left_shift_list(&cg_fact->all_procs.proc_list);
-                        }
                     }
                 }
                 uvm_mutex_unlock(&g_uvm_global.cgroups.lock);
@@ -2195,9 +2189,6 @@ static NV_STATUS block_alloc_gpu_chunk(uvm_va_block_t *block,
         }
     }
 
-    if(!gpu_chunk) {
-        pr_err("GPU CHUNK EMTPY?\n");
-    }
     *out_gpu_chunk = gpu_chunk;
 
     // uvm_mutex_lock(&curr_cgp_facts->cgroup_lock);

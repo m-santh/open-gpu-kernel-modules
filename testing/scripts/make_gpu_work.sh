@@ -93,7 +93,6 @@ echo "SOFT_LIMIT: $SOFT_LIMIT"
 echo "HARD_LIMIT: $HARD_LIMIT"
 echo "SLICE_NAME: ${SLICE_NAME}"
 
-check_prereq
 
 slice="/sys/fs/cgroup/${SLICE_NAME}"
 sudo sh -c "echo '+uvm_ctrl' > /sys/fs/cgroup/cgroup.subtree_control" 
