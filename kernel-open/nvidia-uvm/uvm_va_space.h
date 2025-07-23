@@ -431,10 +431,12 @@ struct uvm_va_space_struct
         bool allow_allocation_from_movable;
     } test;
 
-
-    struct list_head va_block_unused;
-    struct list_head va_block_used;
-    uvm_spinlock_t list_lock;
+    struct {
+        struct list_head va_block_unused;
+        struct list_head va_block_used;
+        uvm_spinlock_t list_lock;
+        u64 size;
+    } gpu[UVM_PARENT_ID_MAX_GPUS];
 
     // size allocated
     u64 size;

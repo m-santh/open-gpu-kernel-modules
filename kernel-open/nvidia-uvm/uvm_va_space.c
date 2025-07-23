@@ -24,6 +24,7 @@
 #include "uvm_api.h"
 #include "uvm_va_space.h"
 #include "uvm_extern_decl.h"
+#include "uvm_processors.h"
 #include "uvm_va_range.h"
 #include "uvm_lock.h"
 #include "uvm_global.h"
@@ -220,9 +221,12 @@ NV_STATUS uvm_va_space_create(struct address_space *mapping, uvm_va_space_t **va
     uvm_range_tree_init(&va_space->va_range_tree);
     uvm_ats_init_va_space(va_space);
 
-    INIT_LIST_HEAD(&va_space->va_block_used);
-    INIT_LIST_HEAD(&va_space->va_block_unused);
-    uvm_spin_lock_init(&va_space->list_lock, UVM_LOCK_ORDER_LEAF);
+    for(int i=0; i<UVM_PARENT_ID_MAX_GPUS; i++) {
+        INIT_LIST_HEAD(&va_space->gpu[i].va_block_used);
+        INIT_LIST_HEAD(&va_space->gpu[i].va_block_unused);
+        uvm_spin_lock_init(&va_space->gpu[i].list_lock, UVM_LOCK_ORDER_LEAF);
+
+    }
 
     INIT_LIST_HEAD(&va_space->node_for_all_procs_cgp);
 
@@ -511,18 +515,20 @@ void uvm_va_space_destroy(uvm_va_space_t *va_space)
     //     }
     struct cgroup_facts *cg_fact = va_space->parent_cgp;
     if (cg_fact) {
-        if(cg_fact->heavy_proc && cg_fact->heavy_proc == va_space)
-            cg_fact->heavy_proc = NULL;
         uvm_mutex_lock(&cg_fact->all_procs.proc_lock);
         list_del(&va_space->node_for_all_procs_cgp);
         pr_info("Removed from cgroup list for pid: %u\n", va_space->pid);
-        cg_fact->size -= va_space->size;
         uvm_mutex_unlock(&cg_fact->all_procs.proc_lock);
 
-        if( cg_fact->is_above_sof_lim_list && cg_fact->size < cg_fact->soft_lim){
-            uvm_mutex_lock(&g_uvm_global.above_sof_limit.lock);
-            list_del_init(&cg_fact->list_node_for_abov_sof);
-            uvm_mutex_unlock(&g_uvm_global.above_sof_limit.lock);
+        for(int i=0; i<UVM_PARENT_ID_MAX_GPUS; i++) {
+            if(cg_fact->gpu[i].heavy_proc && cg_fact->gpu[i].heavy_proc == va_space)
+                cg_fact->gpu[i].heavy_proc = NULL;
+            cg_fact->gpu[i].size -= va_space->gpu[i].size;
+            if(cg_fact->gpu[i].is_above_sof_lim_list && cg_fact->gpu[i].size < cg_fact->gpu[i].soft_lim){
+                uvm_mutex_lock(&g_uvm_global.gpu[i].above_sof_limit.lock);
+                list_del_init(&cg_fact->gpu[i].list_node_for_abov_sof);
+                uvm_mutex_unlock(&g_uvm_global.gpu[i].above_sof_limit.lock);
+            }
         }
     } else {
         pr_err("Parent cgp not found! for pid: %u\n", va_space->pid);

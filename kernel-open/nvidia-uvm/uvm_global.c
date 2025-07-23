@@ -114,9 +114,11 @@ static void uvm_ctrl_new_css(struct cgroup_subsys_state *css)
     struct cgroup_facts *cgf = kzalloc(sizeof(struct cgroup_facts), GFP_KERNEL);
     // If you want css, call css_from_id
     cgf->id = css->id;
-    cgf->size = 0;
-    cgf->soft_lim = DEFAULT_SOFT_LIMIT;
-    cgf->hard_lim = DEFAULT_HARD_LIMIT;
+    for(int i = 0; i<UVM_PARENT_ID_MAX_GPUS; i++) {
+        cgf->gpu[i].size = 0;
+        cgf->gpu[i].soft_lim = DEFAULT_SOFT_LIMIT;
+        cgf->gpu[i].hard_lim = DEFAULT_HARD_LIMIT;
+    }
     pr_info("New css wit id %u", cgf->id);
     INIT_LIST_HEAD(&cgf->all_procs.proc_list);
     uvm_mutex_init(&cgf->cgroup_lock, UVM_LOCK_ORDER_CGROUP_LIST);
@@ -145,16 +147,20 @@ static void uvm_ctrl_change_limit(struct cgroup_subsys_state *css, enum uvm_ctrl
         if(entry->id == css->id) {
             switch(lim_type){
             case UVM_SOFT_LIMIT_CHANGED:
-                entry->soft_lim = new_limit;
-                if(entry->is_above_sof_lim_list && entry->size < new_limit){
-                    uvm_mutex_lock(&g_uvm_global.above_sof_limit.lock);
-                    entry->is_above_sof_lim_list = false;
-                    list_del_init(&entry->list_node_for_abov_sof);
-                    uvm_mutex_unlock(&g_uvm_global.above_sof_limit.lock);
+                for (int i =0; i<UVM_PARENT_ID_MAX_GPUS; i++){
+                    entry->gpu[i].soft_lim = new_limit;
+                    if(entry->gpu[i].is_above_sof_lim_list && entry->gpu[i].size < new_limit){
+                        uvm_mutex_lock(&g_uvm_global.gpu[i].above_sof_limit.lock);
+                        entry->gpu[i].is_above_sof_lim_list = false;
+                        list_del_init(&entry->gpu[i].list_node_for_abov_sof);
+                        uvm_mutex_unlock(&g_uvm_global.gpu[i].above_sof_limit.lock);
+                    }
                 }
                 break;
             case UVM_HARD_LIMIT_CHANGED:
-                entry->hard_lim = new_limit;
+                for(int i=0; i<UVM_PARENT_ID_MAX_GPUS; i++){
+                entry->gpu[i].hard_lim = new_limit;
+                }
                 break;
             default:
                     pr_err("Unknown type update\n");
@@ -232,20 +238,6 @@ static void uvm_ctrl_callback_handler(struct uvm_ctrl_callback_info callback_inf
     }
 }
 
-static void get_missed_css(void) {
-    spin_lock_irqsave(&missed_cl_lock, g_uvm_global.missedFlags);
-    struct list_head *missedList = uvm_ctrl_get_missed_css_unlocked();
-    struct missed_creation *entry, *tmp;
-    list_for_each_entry_safe(entry, tmp, missedList, node){
-        pr_info("Got %u\n", entry->css->id);
-        uvm_ctrl_new_css(entry->css);
-        list_del(&entry->node);
-        kfree(entry);
-    }
-    spin_unlock_irqrestore(&missed_cl_lock, g_uvm_global.missedFlags);
-
-}
-
 NV_STATUS uvm_global_init(void)
 {
     NV_STATUS status;
@@ -265,15 +257,14 @@ NV_STATUS uvm_global_init(void)
     uvm_mutex_init(&g_uvm_global.cgroups.lock, UVM_LOCK_ORDER_CGROUP_LIST);
     INIT_LIST_HEAD(&g_uvm_global.cgroups.list);
 
-    uvm_mutex_init(&g_uvm_global.above_sof_limit.lock, UVM_LOCK_ORDER_ABOVE_SOFT_LIST);
-    INIT_LIST_HEAD(&g_uvm_global.above_sof_limit.list);
+    for(int i = 0; i < UVM_PARENT_ID_MAX_GPUS; i++) {
+        uvm_mutex_init(&g_uvm_global.gpu[i].above_sof_limit.lock, UVM_LOCK_ORDER_ABOVE_SOFT_LIST);
+        INIT_LIST_HEAD(&g_uvm_global.gpu[i].above_sof_limit.list);
+    }
 
     uvm_ctrl_register_callback(uvm_ctrl_callback_handler);
     pr_info("Initalized the callback\n");
 
-    // BUG: The root css was working, ab kyu nahi aa raha bhai
-    get_missed_css();
-    pr_info("Done with missed css\n");
 
     // Initialize the pid_to_va_space 
     xa_init(&g_uvm_global.pid_to_va_space);

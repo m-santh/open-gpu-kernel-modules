@@ -724,6 +724,7 @@ NV_STATUS uvm_pmm_gpu_alloc_user_va_space(uvm_pmm_gpu_t *pmm,
 static void chunk_update_lists_locked(uvm_pmm_gpu_t *pmm, uvm_gpu_chunk_t *chunk)
 {
     uvm_gpu_root_chunk_t *root_chunk = root_chunk_from_chunk(pmm, chunk);
+    uvm_gpu_t* gpu = uvm_pmm_to_gpu(pmm);
 
     uvm_assert_spinlock_locked(&pmm->list_lock);
 
@@ -739,9 +740,9 @@ static void chunk_update_lists_locked(uvm_pmm_gpu_t *pmm, uvm_gpu_chunk_t *chunk
             list_move_tail(&root_chunk->chunk.list, &pmm->root_chunks.va_block_used);
             if(chunk->va_block) {
                 uvm_va_space_t *va_space = uvm_va_block_get_va_space_maybe_dead(chunk->va_block);
-                uvm_spin_lock(&va_space->list_lock);
-                list_move_tail(&root_chunk->chunk.list, &va_space->va_block_used);
-                uvm_spin_unlock(&va_space->list_lock);
+                uvm_spin_lock(&va_space->gpu[gpu->id.val].list_lock);
+                list_move_tail(&root_chunk->chunk.list, &va_space->gpu[gpu->id.val].va_block_used);
+                uvm_spin_unlock(&va_space->gpu[gpu->id.val].list_lock);
             }
         }
     }
@@ -1558,8 +1559,9 @@ void uvm_pmm_gpu_mark_root_chunk_unused(uvm_pmm_gpu_t *pmm, uvm_gpu_chunk_t *chu
 
 void uvm_pmm_gpu_mark_root_chunk_used_va_space(uvm_pmm_gpu_t *pmm, uvm_gpu_chunk_t *chunk, uvm_va_space_t *va_space)
 {
+    uvm_gpu_t *gpu = uvm_pmm_to_gpu(pmm);
     uvm_spin_lock(&pmm->list_lock);
-    uvm_spin_lock(&va_space->list_lock);
+    uvm_spin_lock(&va_space->gpu[gpu->id.val].list_lock);
 
     UVM_ASSERT(uvm_gpu_chunk_get_size(chunk) == UVM_CHUNK_SIZE_MAX);
     UVM_ASSERT(uvm_gpu_chunk_is_user(chunk));
@@ -1571,17 +1573,18 @@ void uvm_pmm_gpu_mark_root_chunk_used_va_space(uvm_pmm_gpu_t *pmm, uvm_gpu_chunk
         // eviction lists.
         UVM_ASSERT(!list_empty(&chunk->list));
 
-        list_move_tail(&chunk->list, &va_space->va_block_used);
+        list_move_tail(&chunk->list, &va_space->gpu[gpu->id.val].va_block_used);
     }
 
-    uvm_spin_unlock(&va_space->list_lock);
+    uvm_spin_unlock(&va_space->gpu[gpu->id.val].list_lock);
     uvm_spin_unlock(&pmm->list_lock);
 }
 
 void uvm_pmm_gpu_mark_root_chunk_unused_va_space(uvm_pmm_gpu_t *pmm, uvm_gpu_chunk_t *chunk, uvm_va_space_t *va_space)
 {
+    uvm_gpu_t *gpu = uvm_pmm_to_gpu(pmm);
     uvm_spin_lock(&pmm->list_lock);
-    uvm_spin_lock(&va_space->list_lock);
+    uvm_spin_lock(&va_space->gpu[gpu->id.val].list_lock);
 
     UVM_ASSERT(uvm_gpu_chunk_get_size(chunk) == UVM_CHUNK_SIZE_MAX);
     UVM_ASSERT(uvm_gpu_chunk_is_user(chunk));
@@ -1593,10 +1596,10 @@ void uvm_pmm_gpu_mark_root_chunk_unused_va_space(uvm_pmm_gpu_t *pmm, uvm_gpu_chu
         // eviction lists.
         UVM_ASSERT(!list_empty(&chunk->list));
 
-        list_move_tail(&chunk->list, &va_space->va_block_unused);
+        list_move_tail(&chunk->list, &va_space->gpu[gpu->id.val].va_block_unused);
     }
 
-    uvm_spin_unlock(&va_space->list_lock);
+    uvm_spin_unlock(&va_space->gpu[gpu->id.val].list_lock);
     uvm_spin_unlock(&pmm->list_lock);
 
 }
@@ -1670,22 +1673,22 @@ static uvm_gpu_root_chunk_t *pick_root_chunk_to_evict_va_space(uvm_pmm_gpu_t *pm
     // if (!chunk)
     //     chunk = list_first_chunk(&pmm->root_chunks.va_block_unused);
 
-
+    uvm_gpu_t *gpu = uvm_pmm_to_gpu(pmm);
     uvm_spin_lock(&pmm->list_lock);
-    uvm_spin_lock(&va_space->list_lock);
+    uvm_spin_lock(&va_space->gpu[gpu->id.val].list_lock);
     // if (!chunk)
-    chunk = list_first_chunk(&va_space->va_block_unused);
+    chunk = list_first_chunk(&va_space->gpu[gpu->id.val].va_block_unused);
 
     // TODO: Bug 1765193: Move the chunks to the tail of the used list whenever
     // they get mapped.
     if (!chunk)
-        chunk = list_first_chunk(&va_space->va_block_used);
+        chunk = list_first_chunk(&va_space->gpu[gpu->id.val].va_block_used);
 
     if (chunk){
         chunk_start_eviction(pmm, chunk);
     }
 
-    uvm_spin_unlock(&va_space->list_lock);
+    uvm_spin_unlock(&va_space->gpu[gpu->id.val].list_lock);
     uvm_spin_unlock(&pmm->list_lock);
 
     if (chunk)
@@ -1779,26 +1782,27 @@ static NV_STATUS pick_and_evict_root_chunk_va_space(uvm_pmm_gpu_t *pmm,
     struct cgroup_facts *entry = va_space->parent_cgp;
     uvm_mutex_lock(&entry->cgroup_lock);
     va_space->size -= UVM_CHUNK_SIZE_MAX;
-    entry->size -= UVM_CHUNK_SIZE_MAX;
+    va_space->gpu[gpu->id.val].size -= UVM_CHUNK_SIZE_MAX;
+    entry->gpu[gpu->id.val].size -= UVM_CHUNK_SIZE_MAX;
     uvm_mutex_unlock(&entry->cgroup_lock);
-    u64 before_dealloc_size = entry->size;
-    u64 after_dealloc_size = entry->size;
-    u64 soft_lim = entry->soft_lim;
+    u64 before_dealloc_size = entry->gpu[gpu->id.val].size;
+    u64 after_dealloc_size = entry->gpu[gpu->id.val].size;
+    u64 soft_lim = entry->gpu[gpu->id.val].soft_lim;
     if(before_dealloc_size >= soft_lim && after_dealloc_size < soft_lim) {
-        uvm_mutex_lock(&g_uvm_global.above_sof_limit.lock);
-        if(entry->is_above_sof_lim_list){
-            list_del_init(&entry->list_node_for_abov_sof);
-            entry->is_above_sof_lim_list = false;
+        uvm_mutex_lock(&g_uvm_global.gpu[gpu->id.val].above_sof_limit.lock);
+        if(entry->gpu[gpu->id.val].is_above_sof_lim_list){
+            list_del_init(&entry->gpu[gpu->id.val].list_node_for_abov_sof);
+            entry->gpu[gpu->id.val].is_above_sof_lim_list = false;
         }
         u64 max_size = 0;
         uvm_va_space_t *newMax;
         list_for_each_entry(newMax, &entry->all_procs.proc_list, node_for_all_procs_cgp){
-            if(newMax->size > max_size){
-                entry->heavy_proc = newMax;
+            if(newMax->gpu[gpu->id.val].size > max_size){
+                entry->gpu[gpu->id.val].heavy_proc = newMax;
                 max_size = newMax->size;
             }
         }
-        uvm_mutex_unlock(&g_uvm_global.above_sof_limit.lock);
+        uvm_mutex_unlock(&g_uvm_global.gpu[gpu->id.val].above_sof_limit.lock);
     }
 
     chunk = &root_chunk->chunk;
