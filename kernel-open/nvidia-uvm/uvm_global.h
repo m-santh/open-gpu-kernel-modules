@@ -160,12 +160,10 @@ struct uvm_global_struct
             uvm_mutex_t lock;
             struct list_head list;
         } above_sof_limit;
-    } gpu[UVM_PARENT_ID_MAX_GPUS];
+    } gpu[UVM_MAX_GPUS+1];
 
     unsigned long missedFlags;
 
-    // store pid to va_space mapping
-    struct xarray pid_to_va_space; 
     // True if the VM has AMD's SEV, or equivalent HW security extensions such
     // as Intel's TDX, enabled. The flag is always false on the host.
     //
@@ -202,7 +200,8 @@ struct cgroup_facts{
         uvm_va_space_t *heavy_proc;
         struct list_head list_node_for_abov_sof;
         bool is_above_sof_lim_list;
-    } gpu[UVM_PARENT_ID_MAX_GPUS];
+        uvm_mutex_t cg_gpu_lock;
+    } gpu[UVM_MAX_GPUS+1];
     uvm_mutex_t cgroup_lock;
 };
 

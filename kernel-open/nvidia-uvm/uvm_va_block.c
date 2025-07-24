@@ -2115,7 +2115,7 @@ static NV_STATUS block_alloc_gpu_chunk(uvm_va_block_t *block,
                 if(unlikely(evict_from_this == NULL)){
                     uvm_va_space_t *tmp;
                     list_for_each_entry_safe(evict_from_this, tmp, &curr_cgp_facts->all_procs.proc_list, node_for_all_procs_cgp){
-                        if(evict_from_this->size)
+                        if(evict_from_this->gpu[gpu->id.val].size)
                             break;
                     }
                     // AS the size of above hard limit there MUST be some process in the above soft limit list
@@ -2145,13 +2145,14 @@ static NV_STATUS block_alloc_gpu_chunk(uvm_va_block_t *block,
                         break;
                     }
                }
-                uvm_mutex_lock(&g_uvm_global.gpu[gpu->id.val].above_sof_limit.lock);
+                uvm_mutex_unlock(&g_uvm_global.gpu[gpu->id.val].above_sof_limit.lock);
                 if(unlikely(!found_list))
                     cg_fact = NULL;
                 uvm_mutex_lock(&g_uvm_global.cgroups.lock);
-                if(!(list_is_singular(&g_uvm_global.cgroups.list) || list_empty(&g_uvm_global.cgroups.list) )){
-                    left_shift_list(&g_uvm_global.cgroups.list);
-                }
+                    if(!(list_is_singular(&g_uvm_global.cgroups.list) || list_empty(&g_uvm_global.cgroups.list) )){
+                        left_shift_list(&g_uvm_global.cgroups.list);
+                    }
+                uvm_mutex_unlock(&g_uvm_global.cgroups.lock);
 
                 if(unlikely(cg_fact == NULL)) {
                     pr_err("Couldn't get cg_fact, so evict from self\n");
@@ -2163,7 +2164,6 @@ static NV_STATUS block_alloc_gpu_chunk(uvm_va_block_t *block,
                         evict_from_this = va_space;
                     }
                 }
-                uvm_mutex_unlock(&g_uvm_global.cgroups.lock);
                 // pr_info("pid: %u size:%llu, current limit %llu\n",
                 //         evict_from_this->pid, evict_from_this->size, curr_cgp_facts->hard_lim);
 
@@ -2192,17 +2192,16 @@ static NV_STATUS block_alloc_gpu_chunk(uvm_va_block_t *block,
     // va_space->size += size;
     // curr_cgp_facts->size += size; 
     // uvm_mutex_unlock(&curr_cgp_facts->cgroup_lock);
-    uvm_mutex_lock(&curr_cgp_facts->cgroup_lock);
-    va_space->size += size;
+    uvm_mutex_lock(&curr_cgp_facts->gpu[gpu->id.val].cg_gpu_lock);
     va_space->gpu[gpu->id.val].size += size;
     curr_cgp_facts->gpu[gpu->id.val].size += size; 
     
     if(unlikely(!(va_space->parent_cgp->gpu[gpu->id.val].heavy_proc)) ||
-        va_space->size > va_space->parent_cgp->gpu[gpu->id.val].heavy_proc->gpu[gpu->id.val].size){
+        va_space->gpu[gpu->id.val].size > va_space->parent_cgp->gpu[gpu->id.val].heavy_proc->gpu[gpu->id.val].size){
         va_space->parent_cgp->gpu[gpu->id.val].heavy_proc = va_space;
         // pr_info("Changed heavy_proc\n");
     }
-    uvm_mutex_unlock(&curr_cgp_facts->cgroup_lock);
+    uvm_mutex_unlock(&curr_cgp_facts->gpu[gpu->id.val].cg_gpu_lock);
 
     u64 size_after_alloc = curr_cgp_facts->gpu[gpu->id.val].size;
     if(size_after_alloc >= soft_lim && size_before_alloc < soft_lim) { 

@@ -436,10 +436,8 @@ struct uvm_va_space_struct
         struct list_head va_block_used;
         uvm_spinlock_t list_lock;
         u64 size;
-    } gpu[UVM_PARENT_ID_MAX_GPUS];
+    } gpu[UVM_MAX_GPUS+1];
 
-    // size allocated
-    u64 size;
 
     // CSS associated with the process
     u64 css_id;

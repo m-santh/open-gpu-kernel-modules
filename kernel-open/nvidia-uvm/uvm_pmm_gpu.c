@@ -1781,7 +1781,6 @@ static NV_STATUS pick_and_evict_root_chunk_va_space(uvm_pmm_gpu_t *pmm,
     // As it was a root chunk
     struct cgroup_facts *entry = va_space->parent_cgp;
     uvm_mutex_lock(&entry->cgroup_lock);
-    va_space->size -= UVM_CHUNK_SIZE_MAX;
     va_space->gpu[gpu->id.val].size -= UVM_CHUNK_SIZE_MAX;
     entry->gpu[gpu->id.val].size -= UVM_CHUNK_SIZE_MAX;
     uvm_mutex_unlock(&entry->cgroup_lock);
@@ -1799,7 +1798,7 @@ static NV_STATUS pick_and_evict_root_chunk_va_space(uvm_pmm_gpu_t *pmm,
         list_for_each_entry(newMax, &entry->all_procs.proc_list, node_for_all_procs_cgp){
             if(newMax->gpu[gpu->id.val].size > max_size){
                 entry->gpu[gpu->id.val].heavy_proc = newMax;
-                max_size = newMax->size;
+                max_size = newMax->gpu[gpu->id.val].size;
             }
         }
         uvm_mutex_unlock(&g_uvm_global.gpu[gpu->id.val].above_sof_limit.lock);

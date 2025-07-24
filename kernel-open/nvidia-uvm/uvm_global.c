@@ -103,6 +103,7 @@ inline bool associate_va_with_cg_fact(struct task_struct *tsk, uvm_va_space_t *v
 
 static void uvm_ctrl_new_css(struct cgroup_subsys_state *css)
 {
+    uvm_gpu_id_t gpu_id;
     // Hopefully I don't overwrite with missed cgroups but check anyway
     struct cgroup_facts *entry, *tmp;
     list_for_each_entry_safe(entry, tmp, &g_uvm_global.cgroups.list, node) {
@@ -114,10 +115,11 @@ static void uvm_ctrl_new_css(struct cgroup_subsys_state *css)
     struct cgroup_facts *cgf = kzalloc(sizeof(struct cgroup_facts), GFP_KERNEL);
     // If you want css, call css_from_id
     cgf->id = css->id;
-    for(int i = 0; i<UVM_PARENT_ID_MAX_GPUS; i++) {
-        cgf->gpu[i].size = 0;
-        cgf->gpu[i].soft_lim = DEFAULT_SOFT_LIMIT;
-        cgf->gpu[i].hard_lim = DEFAULT_HARD_LIMIT;
+    for_each_gpu_id(gpu_id){
+        cgf->gpu[gpu_id.val].size = 0;
+        cgf->gpu[gpu_id.val].soft_lim = DEFAULT_SOFT_LIMIT;
+        cgf->gpu[gpu_id.val].hard_lim = DEFAULT_HARD_LIMIT;
+        uvm_mutex_init(&(cgf->gpu[gpu_id.val].cg_gpu_lock), UVM_LOCK_ORDER_CGROUP_LIST); 
     }
     pr_info("New css wit id %u", cgf->id);
     INIT_LIST_HEAD(&cgf->all_procs.proc_list);
@@ -142,24 +144,25 @@ static void uvm_ctrl_delete_css(struct cgroup_subsys_state *css){
 }
 
 static void uvm_ctrl_change_limit(struct cgroup_subsys_state *css, enum uvm_ctrl_callback_type lim_type, u64 new_limit) {
+    uvm_gpu_id_t gpu_id;
     struct cgroup_facts *entry, *tmp;
     list_for_each_entry_safe(entry, tmp, &g_uvm_global.cgroups.list, node){
         if(entry->id == css->id) {
             switch(lim_type){
             case UVM_SOFT_LIMIT_CHANGED:
-                for (int i =0; i<UVM_PARENT_ID_MAX_GPUS; i++){
-                    entry->gpu[i].soft_lim = new_limit;
-                    if(entry->gpu[i].is_above_sof_lim_list && entry->gpu[i].size < new_limit){
-                        uvm_mutex_lock(&g_uvm_global.gpu[i].above_sof_limit.lock);
-                        entry->gpu[i].is_above_sof_lim_list = false;
-                        list_del_init(&entry->gpu[i].list_node_for_abov_sof);
-                        uvm_mutex_unlock(&g_uvm_global.gpu[i].above_sof_limit.lock);
+                for_each_gpu_id(gpu_id){
+                    entry->gpu[gpu_id.val].soft_lim = new_limit;
+                    if(entry->gpu[gpu_id.val].is_above_sof_lim_list && entry->gpu[gpu_id.val].size < new_limit){
+                        uvm_mutex_lock(&g_uvm_global.gpu[gpu_id.val].above_sof_limit.lock);
+                        entry->gpu[gpu_id.val].is_above_sof_lim_list = false;
+                        list_del_init(&entry->gpu[gpu_id.val].list_node_for_abov_sof);
+                        uvm_mutex_unlock(&g_uvm_global.gpu[gpu_id.val].above_sof_limit.lock);
                     }
                 }
                 break;
             case UVM_HARD_LIMIT_CHANGED:
-                for(int i=0; i<UVM_PARENT_ID_MAX_GPUS; i++){
-                entry->gpu[i].hard_lim = new_limit;
+                for_each_gpu_id(gpu_id){
+                    entry->gpu[gpu_id.val].hard_lim = new_limit;
                 }
                 break;
             default:
@@ -243,6 +246,8 @@ NV_STATUS uvm_global_init(void)
     NV_STATUS status;
     UvmPlatformInfo platform_info;
 
+    uvm_gpu_id_t gpu_id;
+
     // Initialization of thread contexts happened already, during registration
     // (addition) of the thread context associated with the UVM module entry
     // point that is calling this function.
@@ -257,17 +262,14 @@ NV_STATUS uvm_global_init(void)
     uvm_mutex_init(&g_uvm_global.cgroups.lock, UVM_LOCK_ORDER_CGROUP_LIST);
     INIT_LIST_HEAD(&g_uvm_global.cgroups.list);
 
-    for(int i = 0; i < UVM_PARENT_ID_MAX_GPUS; i++) {
-        uvm_mutex_init(&g_uvm_global.gpu[i].above_sof_limit.lock, UVM_LOCK_ORDER_ABOVE_SOFT_LIST);
-        INIT_LIST_HEAD(&g_uvm_global.gpu[i].above_sof_limit.list);
+    for_each_gpu_id(gpu_id) {
+        uvm_mutex_init(&g_uvm_global.gpu[gpu_id.val].above_sof_limit.lock, UVM_LOCK_ORDER_ABOVE_SOFT_LIST);
+        INIT_LIST_HEAD(&g_uvm_global.gpu[gpu_id.val].above_sof_limit.list);
     }
 
     uvm_ctrl_register_callback(uvm_ctrl_callback_handler);
     pr_info("Initalized the callback\n");
 
-
-    // Initialize the pid_to_va_space 
-    xa_init(&g_uvm_global.pid_to_va_space);
 
     status = uvm_kvmalloc_init();
     if (status != NV_OK) {
