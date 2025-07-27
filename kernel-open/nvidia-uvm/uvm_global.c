@@ -143,27 +143,25 @@ static void uvm_ctrl_delete_css(struct cgroup_subsys_state *css){
     uvm_mutex_unlock(&g_uvm_global.cgroups.lock);
 }
 
-static void uvm_ctrl_change_limit(struct cgroup_subsys_state *css, enum uvm_ctrl_callback_type lim_type, u64 new_limit) {
-    uvm_gpu_id_t gpu_id;
+static void uvm_ctrl_change_limit(struct cgroup_subsys_state *css, enum uvm_ctrl_callback_type lim_type,
+                                  u64 new_limit, u32 gpu_id) {
     struct cgroup_facts *entry, *tmp;
     list_for_each_entry_safe(entry, tmp, &g_uvm_global.cgroups.list, node){
         if(entry->id == css->id) {
             switch(lim_type){
             case UVM_SOFT_LIMIT_CHANGED:
-                for_each_gpu_id(gpu_id){
-                    entry->gpu[gpu_id.val].soft_lim = new_limit;
-                    if(entry->gpu[gpu_id.val].is_above_sof_lim_list && entry->gpu[gpu_id.val].size < new_limit){
-                        uvm_mutex_lock(&g_uvm_global.gpu[gpu_id.val].above_sof_limit.lock);
-                        entry->gpu[gpu_id.val].is_above_sof_lim_list = false;
-                        list_del_init(&entry->gpu[gpu_id.val].list_node_for_abov_sof);
-                        uvm_mutex_unlock(&g_uvm_global.gpu[gpu_id.val].above_sof_limit.lock);
-                    }
+                entry->gpu[gpu_id].soft_lim = new_limit;
+                if(entry->gpu[gpu_id].is_above_sof_lim_list && entry->gpu[gpu_id].size < new_limit){
+                    uvm_mutex_lock(&g_uvm_global.gpu[gpu_id].above_sof_limit.lock);
+                    entry->gpu[gpu_id].is_above_sof_lim_list = false;
+                    list_del_init(&entry->gpu[gpu_id].list_node_for_abov_sof);
+                    uvm_mutex_unlock(&g_uvm_global.gpu[gpu_id].above_sof_limit.lock);
                 }
+                pr_info("UVM_SOFT_LIMIT_CHANGED to %llu for GPU ID: %u\n", new_limit, gpu_id);
                 break;
             case UVM_HARD_LIMIT_CHANGED:
-                for_each_gpu_id(gpu_id){
-                    entry->gpu[gpu_id.val].hard_lim = new_limit;
-                }
+                entry->gpu[gpu_id].hard_lim = new_limit;
+                pr_info("UVM_HARD_LIMIT_CHANGED to %llu for GPU ID: %u\n", new_limit, gpu_id);
                 break;
             default:
                     pr_err("Unknown type update\n");
@@ -223,13 +221,19 @@ static void uvm_ctrl_callback_handler(struct uvm_ctrl_callback_info callback_inf
         pr_info("UVM_PROC_MOVED\n");
         break;
     case UVM_SOFT_LIMIT_CHANGED:
-        uvm_ctrl_change_limit(callback_info.css, type, callback_info.soft_limit);
-        pr_info("UVM_SOFT_LIMIT_CHANGED %llu\n", callback_info.soft_limit);
+        {
+        // THIS is the part of code which causes MIG to not be functional
+        // How to figure out if a pcie device GPU is MIG? idk
+            u32 gpu_id = (callback_info.gpu_id * UVM_PARENT_ID_MAX_SUB_PROCESSORS) + 1;
+            uvm_ctrl_change_limit(callback_info.css, type, callback_info.soft_limit, gpu_id);
+        }
         break;
     case UVM_HARD_LIMIT_CHANGED:
-        uvm_ctrl_change_limit(callback_info.css, type, callback_info.hard_limit);
-        pr_info("UVM_HARD_LIMIT_CHANGED %llu\n", callback_info.hard_limit);
-        break;
+        {
+            int gpu_id = (callback_info.gpu_id * UVM_PARENT_ID_MAX_SUB_PROCESSORS) + 1;
+            uvm_ctrl_change_limit(callback_info.css, type, callback_info.hard_limit, gpu_id);
+            pr_info("UVM_HARD_LIMIT_CHANGED to %llu for GPU ID: %u\n", callback_info.hard_limit, gpu_id);
+        }
       break;
     case UVM_NEW_TASK:
         // pr_info("UVM_NEW_TASK, PID: %u \n",callback_info.tsk->pid);
@@ -403,8 +407,6 @@ void uvm_global_exit(void)
     uvm_unregister_callbacks();
     uvm_service_block_context_exit();
 
-    if(spin_is_locked(&missed_cl_lock))
-        spin_unlock_irqrestore(&missed_cl_lock, g_uvm_global.missedFlags);
     uvm_ctrl_unregister_callback();
 
     uvm_perf_heuristics_exit();
