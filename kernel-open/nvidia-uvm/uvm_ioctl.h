@@ -1152,6 +1152,13 @@ typedef struct
     NV_STATUS rmStatus;                                   // OUT
 } UVM_TOOLS_GET_UVM_PIDS_PARAMS;
 
+#define UVM_TOOLS_VALIDATE_FD                              UVM_IOCTL_BASE(83)
+typedef struct
+{
+    NvU32      uvmFd                NV_ALIGN_BYTES(8);  // IN 
+    NV_STATUS rmStatus;                                   // OUT
+} UVM_TOOLS_VALIDATE_FD_PARAMS;
+
 //
 // Temporary ioctls which should be removed before UVM 8 release
 // Number backwards from 2047 - highest custom ioctl function number
