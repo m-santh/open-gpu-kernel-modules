@@ -726,6 +726,7 @@ static long uvm_tools_unlocked_ioctl(struct file *filp, unsigned int cmd, unsign
         UVM_ROUTE_CMD_STACK_NO_INIT_CHECK(UVM_TOOLS_DISABLE_COUNTERS,           uvm_api_tools_disable_counters);
         UVM_ROUTE_CMD_STACK_NO_INIT_CHECK(UVM_TOOLS_INIT_EVENT_TRACKER_V2,      uvm_api_tools_init_event_tracker_v2);
         UVM_ROUTE_CMD_STACK_NO_INIT_CHECK(UVM_TOOLS_GET_GPUs_UUID,              uvm_api_tools_get_gpus_uuid);
+        UVM_ROUTE_CMD_STACK_NO_INIT_CHECK(UVM_TOOLS_VALIDATE_FD,              uvm_api_tools_validate_fd)
         UVM_ROUTE_CMD_STACK_NO_INIT_CHECK(UVM_TOOLS_GET_CURRENT_COUNTER_VALUES,uvm_api_tools_get_current_values);
         UVM_ROUTE_CMD_STACK_NO_INIT_CHECK(UVM_TOOLS_GET_UVM_PIDS,               uvm_api_tools_get_uvm_pids);
 
@@ -2724,8 +2725,6 @@ NV_STATUS uvm_api_tools_get_uvm_pids(UVM_TOOLS_GET_UVM_PIDS_PARAMS *params, stru
             mm = uvm_va_space_mm_retain(va_space);
             //pr_info("%llu\n",mm->owner);
             if(!mm){
-                // pr_err("No mm for va_space!\n");
-                // uvm_va_space_up_read(va_space);
                 continue;
             }
             if(!mm->owner){
@@ -2736,9 +2735,11 @@ NV_STATUS uvm_api_tools_get_uvm_pids(UVM_TOOLS_GET_UVM_PIDS_PARAMS *params, stru
             
             //pr_info("checking........ !!\n");
             
-            if(mm && mm->owner->pid){
+            if(mm && mm->owner->pid && uvm_processor_mask_get_gpu_count(&va_space->registered_gpus)){
             
             *(pids+count)=mm->owner->pid;
+            //*(va_spaces+count)=(unsigned long long)va_space;
+            // pr_info("sending va space....................%llu\n",va_space);
             // pr_info("id assigned, %d\n",*(pids+count));
             // pr_info("id assigned actual, %d\n",mm->owner->pid);
 
@@ -3123,7 +3124,6 @@ NV_STATUS uvm_api_tools_get_gpus_uuid(UVM_TOOLS_GET_GPUs_UUID_PARAMS *params, st
     va_space = uvm_va_space_get(uvm_file);
 
     uvm_va_space_down_read(va_space);
-
     for_each_va_space_gpu(gpu, va_space){
         NvU32 id_value;
         const NvProcessorUuid *uuid;
@@ -3150,7 +3150,18 @@ NV_STATUS uvm_api_tools_get_gpus_uuid(UVM_TOOLS_GET_GPUs_UUID_PARAMS *params, st
 }
 
 
+NV_STATUS uvm_api_tools_validate_fd(UVM_TOOLS_VALIDATE_FD_PARAMS *params, struct file* filp){
+    struct file* uvm_file = fget(params->uvmFd);
+    uvm_va_space_t *va_space;
 
+    va_space = uvm_fd_va_space(uvm_file);
+
+    if(va_space!=NULL && uvm_processor_mask_get_gpu_count(&va_space->registered_gpus) > 0){
+        return NV_OK;
+    }
+
+    return NV_ERR_INVALID_ADDRESS;
+}
 
 NV_STATUS uvm_api_tools_get_processor_uuid_table(UVM_TOOLS_GET_PROCESSOR_UUID_TABLE_PARAMS *params, struct file *filp)
 {
