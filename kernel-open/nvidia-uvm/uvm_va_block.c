@@ -9265,6 +9265,7 @@ static void block_destroy_gpu_state(uvm_va_block_t *block, uvm_va_block_context_
     // No processor should have this GPU mapped at this point
     UVM_ASSERT(block_check_processor_not_mapped(block, block_context, id));
 
+    u64 cumulative_size_removed = 0;
     if (gpu_state->chunks) {
         size_t i, num_chunks;
 
@@ -9278,6 +9279,7 @@ static void block_destroy_gpu_state(uvm_va_block_t *block, uvm_va_block_context_
             if (!chunk)
                 continue;
 
+            cumulative_size_removed += uvm_gpu_chunk_get_size(chunk);
             uvm_mmu_chunk_unmap(chunk, &block->tracker);
             uvm_pmm_gpu_free(&gpu->pmm, chunk, &block->tracker);
         }
@@ -9286,6 +9288,39 @@ static void block_destroy_gpu_state(uvm_va_block_t *block, uvm_va_block_context_
     }
     else {
         UVM_ASSERT(!uvm_processor_mask_test(&block->resident, id));
+    }
+
+
+    uvm_perf_event_notify_gpu_memory_update(&va_space->perf_events,
+                                               gpu->id,
+                                               cumulative_size_removed,
+                                               false,
+                                               block);
+
+
+    struct cgroup_facts *entry = va_space->parent_cgp;
+    uvm_mutex_lock(&entry->cgroup_lock);
+    va_space->gpu[gpu->id.val].size -= cumulative_size_removed;
+    entry->gpu[gpu->id.val].size -= cumulative_size_removed;
+    uvm_mutex_unlock(&entry->cgroup_lock);
+    u64 before_dealloc_size = entry->gpu[gpu->id.val].size;
+    u64 after_dealloc_size = entry->gpu[gpu->id.val].size;
+    u64 soft_lim = entry->gpu[gpu->id.val].soft_lim;
+    if(before_dealloc_size >= soft_lim && after_dealloc_size < soft_lim) {
+        uvm_mutex_lock(&g_uvm_global.gpu[gpu->id.val].above_sof_limit.lock);
+        if(entry->gpu[gpu->id.val].is_above_sof_lim_list){
+            list_del_init(&entry->gpu[gpu->id.val].list_node_for_abov_sof);
+            entry->gpu[gpu->id.val].is_above_sof_lim_list = false;
+        }
+        u64 max_size = 0;
+        uvm_va_space_t *newMax;
+        list_for_each_entry(newMax, &entry->all_procs.proc_list, node_for_all_procs_cgp){
+            if(newMax->gpu[gpu->id.val].size > max_size){
+                entry->gpu[gpu->id.val].heavy_proc = newMax;
+                max_size = newMax->gpu[gpu->id.val].size;
+            }
+        }
+        uvm_mutex_unlock(&g_uvm_global.gpu[gpu->id.val].above_sof_limit.lock);
     }
 
 
